@@ -1,0 +1,12 @@
+# Config B -- damage measurement. How much occlusion costs a naive agent.
+# Identical to A except that the occluder is on.
+_base_: base.yaml
+name: config_b_concat_occ
+
+env:
+  occlusion:
+    mode: static
+
+agent:
+  fusion: concat
+  normalization: none

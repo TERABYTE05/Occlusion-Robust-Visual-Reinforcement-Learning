@@ -1,0 +1,13 @@
+# Config C -- the paper's method under occlusion.
+# Identical to B except for the fusion and normalization keys. C - B is what the
+# mechanism recovers; (C - B) / (A - B) is the headline number.
+_base_: base.yaml
+name: config_c_dual_occ
+
+env:
+  occlusion:
+    mode: static
+
+agent:
+  fusion: dual                       # two independent heads  INVARIANT
+  normalization: layernorm_simplexnorm

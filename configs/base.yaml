@@ -1,0 +1,43 @@
+# Shared defaults. Configs A/B/C differ from this in a handful of keys only --
+# keep it that way, so the diff between two configs is the experiment.
+#
+# Values marked INVARIANT are the paper's contribution (CLAUDE.md). Do not tune
+# them for convergence or speed.
+
+env:
+  id: FetchPushDense-v3        # Landmine 1: never the sparse default
+  camera: v1                   # Landmine 5: bump the version if you retarget it
+  image_size: 84
+  frame_stack: 3
+  pixels: true
+  occlusion: none              # none | static | episode_static
+
+train:
+  steps: 500000                # fallback 300K, chosen at G4
+  seed_steps: 4000             # random actions before learning starts
+  batch_size: 256
+  checkpoint_every: 50000
+  eval_every: 10000
+  eval_episodes: 10
+  amp: true                    # adapted from the paper's float32
+
+agent:
+  lr: 0.0001
+  feature_dim: 128             # d          INVARIANT
+  hidden_dim: 512              # adapted from the paper's 1024
+  nstep: 3                     #            INVARIANT
+  discount: 0.99
+  polyak: 0.01                 # tau        INVARIANT
+  aug_pad: 4                   # +/- 4 px   INVARIANT
+  stddev_schedule: "linear(1.0,0.1,100000)"
+
+  fusion: concat               # concat | dual
+  normalization: none          # none | layernorm_simplexnorm
+  simplexnorm:                 #            INVARIANT (all four)
+    partitions: 16             # L
+    per_partition: 8           # V
+    tau: 1.0
+
+buffer:
+  capacity: 100000             # 1e5 uint8 single frames ~ 2.12 GB
+  nstep: 3

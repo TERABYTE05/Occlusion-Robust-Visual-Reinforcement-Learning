@@ -1,0 +1,11 @@
+# Config A -- ceiling. What the pipeline can do with clean vision.
+# A - B is the occlusion penalty.
+_base_: base.yaml
+name: config_a_concat_noocc
+
+env:
+  occlusion: none
+
+agent:
+  fusion: concat
+  normalization: none
