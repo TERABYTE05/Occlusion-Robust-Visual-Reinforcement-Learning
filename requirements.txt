@@ -1,0 +1,22 @@
+# Pinned exact versions, no ranges (CLAUDE.md, Conventions).
+#
+# NOTE: these pins were chosen offline and have NOT yet been resolved against a
+# live index. Before G1, run a clean install on the lab machine and correct any
+# version that does not resolve, then delete this note.
+#
+# The gymnasium-robotics 1.3.x line is the one that registers the Fetch envs at
+# -v3, which is the id CLAUDE.md pins (`FetchPushDense-v3`, Landmine 1).
+
+gymnasium==1.0.0
+gymnasium-robotics==1.3.1
+mujoco==3.1.6
+
+torch==2.12.0
+numpy==1.26.4
+
+tensorboard==2.18.0
+PyYAML==6.0.2
+pillow==11.1.0
+matplotlib==3.10.0
+
+pytest==8.3.4

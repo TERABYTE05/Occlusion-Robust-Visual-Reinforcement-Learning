@@ -1,0 +1,20 @@
+# Local-only working documents. Kept current, never pushed.
+CLAUDE.md
+progress.md
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Run outputs. Checkpoints and TB logs are large and are not source.
+results/
+!results/.gitkeep
+
+*.pt
+*.ckpt
+events.out.tfevents.*
+
+.venv/
+venv/
+.env
