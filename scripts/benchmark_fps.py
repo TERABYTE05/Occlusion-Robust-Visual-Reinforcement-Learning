@@ -153,6 +153,15 @@ def verdict(fps: float) -> str:
 
 
 def main():
+    # Windows: stdout defaults to the console codepage (cp1252), which cannot
+    # encode the arrows and middots in the report. That is fine in a terminal
+    # but raises the moment output is piped or redirected. Force UTF-8.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):  # pragma: no cover - non-standard stream
+            pass
+
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--steps", type=int, default=2000, help="steps per stage")
     p.add_argument("--env-id", default=ENV_ID)
@@ -218,8 +227,8 @@ def main():
 
     if not args.no_write:
         out = pathlib.Path(args.out)
-        header = "" if out.exists() else "# Benchmarks\n\nFPS measurements. The run matrix at G4 is chosen from the last row here.\n"
-        with out.open("a") as fh:
+        header = "" if (out.exists() and out.stat().st_size > 0) else "# Benchmarks\n\nFPS measurements. The run matrix at G4 is chosen from the last row here.\n"
+        with out.open("a", encoding="utf-8") as fh:
             fh.write(header + report + "\n")
         print(f"\n[bench] appended to {out}")
 

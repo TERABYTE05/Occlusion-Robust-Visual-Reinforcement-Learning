@@ -27,7 +27,7 @@ def _deep_merge(base: dict, override: Mapping) -> dict:
 def load_config(path: str | pathlib.Path) -> dict[str, Any]:
     """Load a YAML config, resolving ``_base_`` relative to the config's own dir."""
     path = pathlib.Path(path)
-    with path.open() as fh:
+    with path.open(encoding="utf-8") as fh:
         cfg = yaml.safe_load(fh) or {}
 
     base_name = cfg.pop("_base_", None)
