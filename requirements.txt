@@ -11,7 +11,10 @@ gymnasium==1.0.0
 gymnasium-robotics==1.3.1
 mujoco==3.1.6
 
-# For GPU - pip install torch --index-url https://download.pytorch.org/whl/cu121
+# The PyPI Linux wheel of torch 2.12.0 is already the CUDA 13 build
+# (torch.__version__ == "2.12.0+cu130"), so no extra index is needed. Never add
+# --index-url here: it replaces PyPI for every package, and gymnasium-robotics
+# is not on the PyTorch index.
 torch==2.12.0
 numpy==1.26.4
 

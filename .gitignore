@@ -1,6 +1,8 @@
 # Local-only working documents. Kept current, never pushed.
 CLAUDE.md
-progress.md
+PROGRESS.md
+BENCHMARK.md
+ROADMAP.md
 
 __pycache__/
 *.py[cod]
