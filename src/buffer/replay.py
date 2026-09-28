@@ -19,10 +19,22 @@ a single ``done``. FetchPush runs a fixed 50 steps and never sets ``terminated``
 so every episode ends by truncation; a buffer that only kept ``done`` would have
 thrown away the distinction the bootstrap mask depends on (Landmine 6).
 
-Scope: this stores transitions and rebuilds stacks. The n-step return and the
-bootstrap mask that consume them are Suraj's, in weeks 2-3; ``sample`` returns
-single-step transitions and the fields those need, and ``sample_indices`` /
-``stack_at`` are the seam to build n-step on top of.
+The n-step return is accumulated here rather than in the agent, because it is the
+only place that knows where episodes end. Three cases, and the difference between
+the last two is Landmine 6:
+
+- the window runs its full ``nstep`` steps: reward is the discounted sum,
+  bootstrap from the observation ``nstep`` later, discounted by ``gamma**nstep``;
+- the episode **truncates** inside the window: the sum stops there, because there
+  are no further rewards, but the value target still **bootstraps normally** from
+  the final observation. Truncation is an artificial time limit, not an absorbing
+  state, and zeroing the target there would misprice every state near the end of
+  an episode -- which on FetchPush is every episode, all of them;
+- the episode **terminates** inside the window: the sum stops and the bootstrap is
+  **zeroed**, because there is genuinely no future value.
+
+So ``bootstrap`` is ``1 - terminated``, never ``1 - (terminated or truncated)``,
+and ``discount`` is ``gamma ** steps_actually_taken`` rather than a constant.
 """
 
 from __future__ import annotations
@@ -46,14 +58,22 @@ class ReplayBuffer:
         frame_stack: int = 3,
         proprio_dim: int = 13,
         action_dim: int = 4,
+        nstep: int = 1,
+        discount: float = 0.99,
         seed: int | None = None,
     ):
         if capacity < frame_stack + 1:
             raise ValueError("capacity must exceed the frame stack")
+        if nstep < 1:
+            raise ValueError("nstep must be at least 1")
+        if not 0.0 < discount <= 1.0:
+            raise ValueError("discount must lie in (0, 1]")
 
         self.capacity = int(capacity)
         self.image_size = int(image_size)
         self.frame_stack = int(frame_stack)
+        self.nstep = int(nstep)
+        self.discount = float(discount)
 
         self._frames = np.zeros((capacity, image_size, image_size, 3), dtype=np.uint8)
         self._proprio = np.zeros((capacity, proprio_dim), dtype=np.float32)
@@ -143,23 +163,75 @@ class ReplayBuffer:
             raise ValueError("buffer holds no complete transitions yet")
         return self._rng.choice(np.asarray(available), size=batch_size, replace=True)
 
-    def sample(self, batch_size: int) -> dict[str, np.ndarray]:
-        """A batch of single-step transitions.
+    def nstep_from(self, absolute: int) -> dict[str, float | int | bool]:
+        """Walk the n-step window starting at ``absolute``.
 
-        ``terminated`` and ``truncated`` come back separately, deliberately.
-        The bootstrap mask is built from ``terminated`` alone.
+        Returns the discounted reward sum, how many steps it actually covered,
+        the absolute index of the observation to bootstrap from, and how the
+        window ended. The walk stops early at a terminal, at a truncation, or
+        at the write frontier; in all three cases the shortened return plus a
+        ``gamma ** steps`` bootstrap is still the correct target, which is why
+        ``discount`` is returned rather than assumed.
+        """
+        total = 0.0
+        steps = 0
+        index = absolute
+        terminated = False
+        truncated = False
+
+        for offset in range(self.nstep):
+            slot = self._slot(index)
+            if not self._has_next[slot]:
+                break  # write frontier: the successor has not been recorded yet
+            total += (self.discount**offset) * float(self._rewards[slot])
+            steps += 1
+            index += 1
+            terminated = bool(self._terminated[slot])
+            truncated = bool(self._truncated[slot])
+            if terminated or truncated:
+                break
+
+        if steps == 0:
+            raise ValueError(f"index {absolute} holds no complete transition")
+
+        return {
+            "reward": total,
+            "steps": steps,
+            "final": index,
+            "discount": self.discount**steps,
+            "terminated": terminated,
+            "truncated": truncated,
+        }
+
+    def sample(self, batch_size: int) -> dict[str, np.ndarray]:
+        """A batch of n-step transitions.
+
+        ``reward`` is the discounted sum over the window and ``discount`` is
+        ``gamma ** steps``, so the value target is
+
+            reward + discount * bootstrap * Q(next)
+
+        ``bootstrap`` is ``1 - terminated``. ``truncated`` is returned too, but
+        only for diagnostics -- it must never enter the mask (Landmine 6).
         """
         indices = self.sample_indices(batch_size)
         slots = np.array([self._slot(i) for i in indices])
+        windows = [self.nstep_from(i) for i in indices]
+        finals = [int(window["final"]) for window in windows]
+        terminated = np.array([window["terminated"] for window in windows], dtype=bool)
+
         return {
             "pixels": np.stack([self.stack_at(i) for i in indices]),
             "proprio": self._proprio[slots].copy(),
             "action": self._actions[slots].copy(),
-            "reward": self._rewards[slots].copy(),
-            "next_pixels": np.stack([self.stack_at(i + 1) for i in indices]),
-            "next_proprio": self._proprio[[self._slot(i + 1) for i in indices]].copy(),
-            "terminated": self._terminated[slots].copy(),
-            "truncated": self._truncated[slots].copy(),
+            "reward": np.array([window["reward"] for window in windows], dtype=np.float32),
+            "discount": np.array([window["discount"] for window in windows], dtype=np.float32),
+            "next_pixels": np.stack([self.stack_at(i) for i in finals]),
+            "next_proprio": self._proprio[[self._slot(i) for i in finals]].copy(),
+            "terminated": terminated,
+            "truncated": np.array([window["truncated"] for window in windows], dtype=bool),
+            "bootstrap": (~terminated).astype(np.float32),
+            "steps": np.array([window["steps"] for window in windows], dtype=np.int32),
         }
 
     # -- diagnostics ------------------------------------------------------

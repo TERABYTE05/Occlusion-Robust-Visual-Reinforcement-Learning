@@ -3,6 +3,10 @@ CLAUDE.md
 PROGRESS.md
 BENCHMARK.md
 ROADMAP.md
+DECISIONS.md
+RUNLOG.md
+rlpaper.pdf
+docs/
 
 __pycache__/
 *.py[cod]
