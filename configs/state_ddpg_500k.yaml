@@ -1,0 +1,15 @@
+# The state anchor, run long enough to settle Checkpoint C.
+#
+# The 200K run learned -- episode return improved with a fitted slope of +0.133
+# per evaluation, t = 3.29 -- but only reached ~12% success, which is weak for a
+# configuration that sees ground-truth state under a dense reward. 200K cannot
+# separate "correct and slow" from "subtly wrong".
+#
+# At ~188 FPS this is ~45 minutes. If success keeps climbing the core is sound
+# and the anchor was simply under-trained; if it plateaus near 0.1, run the
+# diagnostics in PROGRESS.md rather than reaching for a hyperparameter.
+_base_: state_ddpg.yaml
+name: state_ddpg_500k
+
+train:
+  steps: 500000
