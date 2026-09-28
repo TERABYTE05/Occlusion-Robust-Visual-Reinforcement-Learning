@@ -109,3 +109,25 @@ class ProprioEncoder(nn.Module):
 
     def forward(self, proprio: torch.Tensor) -> torch.Tensor:
         return self.net(proprio.float())
+
+
+class StateEncoder(nn.Module):
+    """Pass-through 'encoder' for the state-based sanity anchor.
+
+    The anchor exists to prove that the task, the reward, goal conditioning and
+    the DDPG core are sound *before* any vision enters (ROADMAP section 2). A
+    learned trunk here would put representation learning back into the one
+    configuration whose whole purpose is to have none, so this holds no
+    parameters at all and the actor and critic MLPs see the raw state.
+
+    It carries ``repr_dim`` so the agent can be written once, against an
+    injected encoder, and the pixel path can later swap in the real one without
+    the agent changing.
+    """
+
+    def __init__(self, obs_dim: int):
+        super().__init__()
+        self.repr_dim = int(obs_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x.float()

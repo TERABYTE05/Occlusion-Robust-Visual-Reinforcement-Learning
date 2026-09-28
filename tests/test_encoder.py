@@ -56,3 +56,22 @@ def test_proprio_encoder_refuses_a_wider_input():
     """Widening g_xi's input is how the Landmine 3 leak gets reintroduced."""
     with pytest.raises(ValueError):
         ProprioEncoder(in_dim=25)
+
+
+# -- the state anchor's pass-through encoder --------------------------------
+
+
+def test_state_encoder_is_a_pass_through_with_a_declared_width():
+    from src.models.encoders import StateEncoder
+
+    encoder = StateEncoder(28)
+    x = torch.randn(4, 28)
+    assert encoder.repr_dim == 28
+    assert torch.equal(encoder(x), x)
+
+
+def test_state_encoder_holds_no_parameters():
+    """The anchor exists to test DDPG, not representation learning."""
+    from src.models.encoders import StateEncoder
+
+    assert list(StateEncoder(28).parameters()) == []
