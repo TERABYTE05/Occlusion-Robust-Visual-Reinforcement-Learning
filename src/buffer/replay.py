@@ -311,3 +311,89 @@ class ReplayBuffer:
                 self._terminated, self._truncated, self._has_next, self._age,
             )
         )
+
+    # -- persistence ------------------------------------------------------
+    def save(self, path) -> None:
+        """Write the buffer so a resumed run keeps its replay history.
+
+        Without this, ``--resume`` rebuilds an empty buffer and the run trains
+        on near-on-policy data until it refills. A 500K run restarted at 150K
+        would throw away 100K transitions and would no longer be the same
+        experiment as an uninterrupted one -- silently, since nothing in the
+        curves says a restart happened. Runs are hours long on a shared
+        machine and the roadmap expects restarts, so this has to be real.
+        """
+        import pathlib
+
+        import torch
+
+        path = pathlib.Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "geometry": {
+                "capacity": self.capacity,
+                "image_size": self.image_size,
+                "frame_stack": self.frame_stack,
+                "nstep": self.nstep,
+                "discount": self.discount,
+                "proprio_dim": int(self._proprio.shape[1]),
+                "action_dim": int(self._actions.shape[1]),
+            },
+            "frames": self._frames,
+            "proprio": self._proprio,
+            "actions": self._actions,
+            "rewards": self._rewards,
+            "terminated": self._terminated,
+            "truncated": self._truncated,
+            "has_next": self._has_next,
+            "age": self._age,
+            "next": self._next,
+            "last": self._last,
+            "rng": self._rng.bit_generator.state,
+        }
+        temporary = path.with_name(path.name + ".tmp")
+        torch.save(payload, temporary)
+        temporary.replace(path)
+
+    def load(self, path) -> None:
+        """Restore a buffer written by :meth:`save`, in place.
+
+        The geometry is checked rather than trusted. A buffer restored into a
+        run with a different frame stack or capacity would reconstruct stacks
+        that never existed, which is exactly the kind of silent corruption the
+        rest of this class is built to prevent.
+        """
+        import pathlib
+
+        import torch
+
+        payload = torch.load(pathlib.Path(path), map_location="cpu", weights_only=False)
+
+        expected = {
+            "capacity": self.capacity,
+            "image_size": self.image_size,
+            "frame_stack": self.frame_stack,
+            "nstep": self.nstep,
+            "discount": self.discount,
+            "proprio_dim": int(self._proprio.shape[1]),
+            "action_dim": int(self._actions.shape[1]),
+        }
+        found = payload["geometry"]
+        if found != expected:
+            differences = {k: (found.get(k), v) for k, v in expected.items() if found.get(k) != v}
+            raise ValueError(
+                f"replay snapshot does not match this run: {differences} "
+                "(found, expected). Refusing to restore it."
+            )
+
+        self._frames[...] = payload["frames"]
+        self._proprio[...] = payload["proprio"]
+        self._actions[...] = payload["actions"]
+        self._rewards[...] = payload["rewards"]
+        self._terminated[...] = payload["terminated"]
+        self._truncated[...] = payload["truncated"]
+        self._has_next[...] = payload["has_next"]
+        self._age[...] = payload["age"]
+        self._next = int(payload["next"])
+        self._last = payload["last"]
+        self._rng.bit_generator.state = payload["rng"]

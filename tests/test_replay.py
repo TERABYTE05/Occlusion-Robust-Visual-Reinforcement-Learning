@@ -280,3 +280,78 @@ def test_sampling_covers_the_buffer_rather_than_a_corner_of_it():
     assert drawn.min() < buffer._start + 0.1 * span
     assert drawn.max() > buffer._start + 0.9 * span
     assert len(np.unique(drawn)) > 0.5 * span
+
+
+# -- persistence across a restart -------------------------------------------
+#
+# Runs are hours long on a shared machine and the roadmap expects restarts. A
+# resume that rebuilds an empty buffer trains on near-on-policy data until it
+# refills, so a restarted run is a different experiment from an uninterrupted
+# one -- and nothing in the curves would say so.
+
+
+def test_a_restored_buffer_holds_the_same_transitions(tmp_path):
+    original = make_buffer(capacity=500)
+    _fill(original, 300, episode_length=20)
+    path = tmp_path / "replay.pt"
+    original.save(path)
+
+    restored = make_buffer(capacity=500)
+    restored.load(path)
+
+    assert len(restored) == len(original)
+    assert restored._next == original._next
+    for absolute in range(original._start, original._next):
+        assert restored._is_sampleable(absolute) == original._is_sampleable(absolute)
+        assert frame_values(restored.stack_at(absolute)) == frame_values(
+            original.stack_at(absolute)
+        )
+
+
+def test_a_restored_buffer_reproduces_the_same_nstep_windows(tmp_path):
+    original = make_buffer(capacity=500)
+    _fill(original, 200, episode_length=20)
+    path = tmp_path / "replay.pt"
+    original.save(path)
+
+    restored = make_buffer(capacity=500)
+    restored.load(path)
+
+    for absolute in range(original._start, original._next):
+        if original._is_sampleable(absolute):
+            assert restored.nstep_from(absolute) == original.nstep_from(absolute)
+
+
+def test_a_restored_buffer_can_still_be_written_to(tmp_path):
+    """Resume continues the same episode stream, so writing must pick up cleanly."""
+    original = make_buffer(capacity=500)
+    _fill(original, 100, episode_length=20)
+    path = tmp_path / "replay.pt"
+    original.save(path)
+
+    restored = make_buffer(capacity=500)
+    restored.load(path)
+
+    before = len(restored)
+    fill_episode(restored, [1, 2, 3, 4])
+    assert len(restored) == before + 3
+
+
+def test_restoring_a_buffer_with_different_geometry_is_refused(tmp_path):
+    """A stack rebuilt against the wrong frame count is silent corruption."""
+    original = ReplayBuffer(capacity=500, image_size=SIZE, frame_stack=3, action_dim=4)
+    _fill(original, 100, episode_length=20)
+    path = tmp_path / "replay.pt"
+    original.save(path)
+
+    mismatched = ReplayBuffer(capacity=500, image_size=SIZE, frame_stack=2, action_dim=4)
+    with pytest.raises(ValueError, match="does not match"):
+        mismatched.load(path)
+
+
+def test_saving_leaves_no_temporary_file_behind(tmp_path):
+    buffer = make_buffer(capacity=200)
+    _fill(buffer, 50, episode_length=10)
+    path = tmp_path / "replay.pt"
+    buffer.save(path)
+    assert [p.name for p in tmp_path.iterdir()] == ["replay.pt"]

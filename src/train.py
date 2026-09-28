@@ -40,7 +40,7 @@ from .envs.make_env import make_env
 from .envs.proprio import PROPRIO_OBS_DIM
 from .eval import evaluate
 from .models.encoders import ImageEncoder, ProprioEncoder, StateEncoder
-from .utils.checkpoint import load_checkpoint, save_checkpoint
+from .utils.checkpoint import REPLAY_NAME, load_checkpoint, save_checkpoint
 from .utils.config import load_config
 from .utils.gl import resolved_backend
 
@@ -237,6 +237,20 @@ def train(config_path: str, seed: int, resume: bool = False) -> dict[str, float]
         best_success = float(state["extra"].get("best_success", -1.0))
         print(f"[resume] continuing from step {start_step}")
 
+        # Without the replay history a resumed run trains on near-on-policy data
+        # until the buffer refills, so it is not the same experiment as an
+        # uninterrupted one -- and nothing in the curves would say so.
+        replay_path = out_dir / REPLAY_NAME
+        if replay_path.exists():
+            buffer.load(replay_path)
+            print(f"[resume] restored {len(buffer)} transitions of replay history")
+        else:
+            print(
+                "[resume] WARNING: no replay snapshot found, so the buffer restarts "
+                "EMPTY. This run is not equivalent to an uninterrupted one; record "
+                "the restart in RUNLOG.md before using its results."
+            )
+
     total_steps = int(train_cfg.get("steps", 500_000))
     seed_steps = int(train_cfg.get("seed_steps", 4000))
     batch_size = int(train_cfg.get("batch_size", 256))
@@ -249,6 +263,9 @@ def train(config_path: str, seed: int, resume: bool = False) -> dict[str, float]
     episode_return, episode_steps, episodes = 0.0, 0, 0
     last_time, last_step = time.time(), start_step
     metrics: dict[str, float] = {}
+    # len(buffer) is O(capacity); once the batch is available it stays
+    # available, so the check is latched rather than repeated every step.
+    ready = False
     summary: dict[str, float] = {}
 
     for step in range(start_step, total_steps):
@@ -275,7 +292,9 @@ def train(config_path: str, seed: int, resume: bool = False) -> dict[str, float]
             buffer.add_first(_store_obs(obs_fn, obs, uses_pixels))
             episode_return, episode_steps = 0.0, 0
 
-        if step >= seed_steps and len(buffer) >= batch_size:
+        if not ready and step >= seed_steps and len(buffer) >= batch_size:
+            ready = True
+        if ready:
             metrics = agent.update(to_agent_batch(buffer.sample(batch_size), uses_pixels), step)
             assert_finite(metrics, step)
             if writer is not None and step % 100 == 0:
@@ -303,9 +322,13 @@ def train(config_path: str, seed: int, resume: bool = False) -> dict[str, float]
         if checkpoint_every and (step + 1) % checkpoint_every == 0:
             save_checkpoint(out_dir / "latest.pt", agent, step + 1, rng,
                             extra={"best_success": best_success, "episodes": episodes})
+            buffer.save(out_dir / REPLAY_NAME)
 
     save_checkpoint(out_dir / "final.pt", agent, total_steps, rng,
                     extra={"best_success": best_success, "episodes": episodes})
+    # A finished run has nothing to resume, and this file is ~2.1 GB on the
+    # pixel path. Nine of them left behind is how the last disk filled up.
+    (out_dir / REPLAY_NAME).unlink(missing_ok=True)
     if writer is not None:
         writer.close()
     env.close()

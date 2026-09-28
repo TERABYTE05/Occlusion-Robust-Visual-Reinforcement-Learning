@@ -31,6 +31,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from src.envs.fetch_pixels import ENV_ID, PixelProprioWrapper, make_raw_env  # noqa: E402
 from src.envs.make_env import FrameStack  # noqa: E402
+from src.buffer.replay import ReplayBuffer  # noqa: E402
 from src.envs.occlusion import make_occluder  # noqa: E402
 from src.envs.proprio import PROPRIO_OBS_DIM  # noqa: E402
 from src.models.encoders import ImageEncoder, ProprioEncoder  # noqa: E402
@@ -108,6 +109,37 @@ def stage_encoder(args, rng, device):
         env.close()
 
 
+def _prefilled_buffer(args):
+    """A replay buffer filled to the capacity a production run reaches.
+
+    Filled with zeros: the benchmark measures the cost of moving and sampling
+    the data, which does not depend on its contents.
+    """
+    buffer = ReplayBuffer(
+        capacity=args.buffer_capacity,
+        image_size=args.image_size,
+        frame_stack=args.frame_stack,
+        proprio_dim=PROPRIO_OBS_DIM,
+        action_dim=4,
+        nstep=3,
+        discount=0.99,
+        seed=0,
+    )
+    frame = np.zeros((args.image_size, args.image_size, 3), dtype=np.uint8)
+    proprio = np.zeros(PROPRIO_OBS_DIM, dtype=np.float32)
+    action = np.zeros(4, dtype=np.float32)
+    written = 0
+    while written < args.buffer_capacity:
+        buffer.add_first({"pixels": frame, "proprio": proprio})
+        for step in range(50):
+            buffer.add(action, 0.0, {"pixels": frame, "proprio": proprio},
+                       terminated=False, truncated=(step == 49))
+            written += 1
+            if written >= args.buffer_capacity:
+                break
+    return buffer
+
+
 def stage_full(args, rng, device):
     env = _pixel_env(args)
     image_enc, proprio_enc = _encoders(args, device)
@@ -118,16 +150,17 @@ def stage_full(args, rng, device):
     use_amp = device.type == "cuda"
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
-    # A resident batch, standing in for a replay sample. Sampling cost is not
-    # measured here -- the buffer does not exist yet.
-    batch_pixels = torch.randint(
-        0, 255,
-        (args.batch_size, 3 * args.frame_stack, args.image_size, args.image_size),
-        dtype=torch.uint8, device=device,
-    )
-    batch_proprio = torch.randn(args.batch_size, PROPRIO_OBS_DIM, device=device)
+    # Draw from a real replay buffer at production fill, not a resident batch.
+    # An earlier version of this script used a resident tensor and said sampling
+    # was not measured; that hid an O(buffer) sampling cost which put a ~31 FPS
+    # ceiling on the whole loop and was invisible here while it sized the run
+    # matrix at G4. Whatever the loop pays per step, this benchmark has to pay.
+    buffer = _prefilled_buffer(args)
 
     def update(obs):
+        batch = buffer.sample(args.batch_size)
+        batch_pixels = torch.as_tensor(batch["pixels"], device=device)
+        batch_proprio = torch.as_tensor(batch["proprio"], device=device)
         with torch.amp.autocast("cuda", enabled=use_amp):
             features = torch.cat(
                 [image_enc(batch_pixels), proprio_enc(batch_proprio)], dim=-1
@@ -169,6 +202,9 @@ def main():
     p.add_argument("--image-size", type=int, default=84)
     p.add_argument("--frame-stack", type=int, default=3)
     p.add_argument("--batch-size", type=int, default=256)
+    p.add_argument("--buffer-capacity", type=int, default=100_000,
+                   help="replay fill for stage 4; the production value, "
+                        "because sampling cost grew with it once before")
     p.add_argument("--occlusion", default="none")
     p.add_argument("--out", default="BENCHMARK.md")
     p.add_argument("--no-write", action="store_true")
