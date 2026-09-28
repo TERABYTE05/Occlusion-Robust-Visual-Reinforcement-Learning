@@ -194,3 +194,89 @@ def test_reported_size_matches_the_documented_budget():
     """
     buffer = ReplayBuffer(capacity=100_000, image_size=84, frame_stack=3, action_dim=4)
     assert 2.0 < buffer.nbytes() / 1e9 < 2.3
+
+
+# -- sampling cost ----------------------------------------------------------
+#
+# Throughput decides the run matrix (G1, G4), so the cost of drawing a batch is
+# a scientific quantity rather than a micro-optimisation. An O(buffer)
+# implementation put a ceiling of ~31 FPS on the state anchor once the buffer
+# filled, decaying from ~240 FPS as it filled, and `benchmark_fps.py` cannot see
+# it because that script uses a resident batch and never samples.
+
+
+def _fill(buffer, transitions, episode_length=50):
+    frame = np.zeros((SIZE, SIZE, 3), dtype=np.uint8)
+    proprio = np.zeros(13, dtype=np.float32)
+    written = 0
+    while written < transitions:
+        buffer.add_first({"pixels": frame, "proprio": proprio})
+        for step in range(episode_length):
+            buffer.add(
+                np.zeros(4, dtype=np.float32), 0.0,
+                {"pixels": frame, "proprio": proprio},
+                terminated=False, truncated=(step == episode_length - 1),
+            )
+            written += 1
+
+
+def test_sampling_inspects_a_batch_sized_number_of_indices_not_a_buffer_sized_one():
+    """The property, stated directly: cost scales with the batch, not the fill."""
+    batch_size = 64
+    small = ReplayBuffer(capacity=60_000, image_size=SIZE, frame_stack=STACK, action_dim=4, seed=0)
+    _fill(small, 3_000)
+    small.sample_indices(batch_size)
+
+    large = ReplayBuffer(capacity=60_000, image_size=SIZE, frame_stack=STACK, action_dim=4, seed=0)
+    _fill(large, 55_000)
+    large.sample_indices(batch_size)
+
+    assert large.last_sample_cost <= 8 * batch_size, (
+        f"drawing {batch_size} indices inspected {large.last_sample_cost}; "
+        "sampling has gone back to scanning the buffer"
+    )
+    assert large.last_sample_cost <= 4 * small.last_sample_cost
+
+
+def test_sampling_does_not_slow_down_as_the_buffer_fills():
+    """The wall-clock form of the same property -- this is how it was found."""
+    import time
+
+    def cost_at(transitions):
+        buffer = ReplayBuffer(capacity=60_000, image_size=SIZE, frame_stack=STACK,
+                              action_dim=4, seed=0)
+        _fill(buffer, transitions)
+        buffer.sample_indices(256)  # warm up
+        start = time.perf_counter()
+        for _ in range(20):
+            buffer.sample_indices(256)
+        return (time.perf_counter() - start) / 20
+
+    nearly_empty = cost_at(3_000)
+    nearly_full = cost_at(55_000)
+
+    # 18x more data. A generous bound: the point is to catch a return to linear
+    # scanning, which showed up as a 7x slowdown over this range, not to pin
+    # down constant factors on a shared machine.
+    assert nearly_full < 4 * nearly_empty, (
+        f"{nearly_full * 1e3:.2f} ms at 55k vs {nearly_empty * 1e3:.2f} ms at 3k"
+    )
+
+
+def test_rejection_sampling_still_only_returns_valid_transitions():
+    """Speed must not cost correctness: every index must be reconstructable."""
+    buffer = make_buffer(capacity=500)
+    _fill(buffer, 400, episode_length=20)
+    for absolute in buffer.sample_indices(512):
+        assert buffer._is_sampleable(int(absolute))
+
+
+def test_sampling_covers_the_buffer_rather_than_a_corner_of_it():
+    """A biased proposal would quietly train on a fraction of the data."""
+    buffer = make_buffer(capacity=2_000)
+    _fill(buffer, 1_000, episode_length=20)
+    drawn = buffer.sample_indices(4_000)
+    span = buffer._next - buffer._start
+    assert drawn.min() < buffer._start + 0.1 * span
+    assert drawn.max() > buffer._start + 0.9 * span
+    assert len(np.unique(drawn)) > 0.5 * span

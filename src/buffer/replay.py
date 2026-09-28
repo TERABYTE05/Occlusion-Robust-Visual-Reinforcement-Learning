@@ -41,6 +41,11 @@ from __future__ import annotations
 
 import numpy as np
 
+#: Rejection rounds before falling back to an exhaustive scan. At ~98%
+#: acceptance a single round almost always fills the batch; this only matters
+#: for a buffer too small or too sparse for rejection to converge.
+_MAX_REJECTION_ROUNDS = 8
+
 
 class ReplayBuffer:
     """Ring buffer over observations, not over transitions.
@@ -89,6 +94,8 @@ class ReplayBuffer:
         self._next = 0  # absolute index of the next write
         self._last: int | None = None  # absolute index of the open observation
         self._rng = np.random.default_rng(seed)
+        #: Indices inspected by the most recent ``sample_indices`` call.
+        self.last_sample_cost = 0
 
     # -- bookkeeping ------------------------------------------------------
     def __len__(self) -> int:
@@ -156,12 +163,72 @@ class ReplayBuffer:
         age = int(self._age[slot])
         return absolute - min(self.frame_stack - 1, age) >= self._start
 
+    def _sampleable_mask(self, absolute: np.ndarray) -> np.ndarray:
+        """``_is_sampleable`` over a whole array at once, in numpy."""
+        slots = absolute % self.capacity
+        reach = np.minimum(self.frame_stack - 1, self._age[slots])
+        return self._has_next[slots] & (absolute - reach >= self._start)
+
     def sample_indices(self, batch_size: int) -> np.ndarray:
-        """Absolute indices of complete, fully-reconstructable transitions."""
-        available = [i for i in range(self._start, self._next) if self._is_sampleable(i)]
-        if not available:
+        """Absolute indices of complete, fully-reconstructable transitions.
+
+        Drawn by **rejection**: propose ``batch_size`` indices uniformly over
+        the live span, keep the ones that pass, repeat until the batch is full.
+        The distribution is identical to picking uniformly from the set of valid
+        indices, because a uniform proposal filtered by a predicate is uniform
+        over what survives it.
+
+        The obvious implementation -- build the list of valid indices, then
+        choose from it -- is O(buffer) on *every* training step, and the buffer
+        holds 10^5 transitions. Measured on the state anchor, that put a ceiling
+        of ~31 FPS on the whole run once the buffer filled, decaying steadily
+        from ~240 FPS as it filled up, and it is invisible in
+        ``benchmark_fps.py`` because that script uses a resident batch and
+        explicitly does not measure sampling. Throughput decides the run matrix
+        (G1, G4), so this is a scientific cost, not a micro-optimisation.
+
+        Rejection is cheap here because almost everything is valid: only the
+        final observation of each episode lacks a successor, and only a couple
+        of indices at the tail of the ring have lost the history their stack
+        needs. On 50-step episodes that is an acceptance rate around 98%.
+        """
+        span = self._next - self._start
+        if span <= 0:
             raise ValueError("buffer holds no complete transitions yet")
-        return self._rng.choice(np.asarray(available), size=batch_size, replace=True)
+
+        out = np.empty(batch_size, dtype=np.int64)
+        filled = 0
+        examined = 0
+
+        for _round in range(_MAX_REJECTION_ROUNDS):
+            if filled >= batch_size:
+                break
+            draw = self._rng.integers(self._start, self._next, size=batch_size)
+            examined += draw.size
+            valid = draw[self._sampleable_mask(draw)]
+            take = min(valid.size, batch_size - filled)
+            out[filled : filled + take] = valid[:take]
+            filled += take
+
+        if filled < batch_size:
+            # Pathological: a buffer so short or so sparse that rejection is not
+            # converging. Fall back to the exhaustive scan, which is correct and
+            # only ever runs when the buffer is tiny anyway.
+            available = np.fromiter(
+                (i for i in range(self._start, self._next) if self._is_sampleable(i)),
+                dtype=np.int64,
+            )
+            examined += span
+            if available.size == 0:
+                raise ValueError("buffer holds no complete transitions yet")
+            out[filled:] = self._rng.choice(
+                available, size=batch_size - filled, replace=True
+            )
+
+        #: Indices inspected by the last call. A diagnostic, like ``nbytes``:
+        #: it must stay proportional to the batch, never to the buffer.
+        self.last_sample_cost = examined
+        return out
 
     def nstep_from(self, absolute: int) -> dict[str, float | int | bool]:
         """Walk the n-step window starting at ``absolute``.
