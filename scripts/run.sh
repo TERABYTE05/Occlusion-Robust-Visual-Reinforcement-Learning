@@ -28,4 +28,6 @@ if [[ ! -f src/train.py ]]; then
   exit 3
 fi
 
-exec python src/train.py --config "$CONFIG" "$@"
+# -m, not a path: src/train.py uses package-relative imports, and running it as
+# a script puts src/ on sys.path instead of the repo root, which breaks them.
+exec python -m src.train --config "$CONFIG" "$@"

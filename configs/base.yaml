@@ -30,6 +30,7 @@ agent:
   polyak: 0.01                 # tau        INVARIANT
   aug_pad: 4                   # +/- 4 px   INVARIANT
   stddev_schedule: "linear(1.0,0.1,100000)"
+  stddev_clip: 0.3              # clip value c. Not given in Table B.1; DrQ-v2 default (D13)
 
   fusion: concat               # concat | dual
   normalization: none          # none | layernorm_simplexnorm

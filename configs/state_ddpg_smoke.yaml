@@ -1,0 +1,19 @@
+# Smoke run for the state anchor. Not an experiment -- a 2000-step shakedown
+# that proves the loop runs end to end, the losses stay finite, and a
+# checkpoint round-trips, before anything is left alone for hours.
+#
+# It is a config file rather than a command-line override because every run is
+# defined by a config plus a seed (CLAUDE.md, Conventions), including the ones
+# that are only ever thrown away.
+_base_: state_ddpg.yaml
+name: state_ddpg_smoke
+
+train:
+  steps: 2000
+  seed_steps: 200
+  eval_every: 500
+  eval_episodes: 3
+  checkpoint_every: 1000
+
+buffer:
+  capacity: 5000

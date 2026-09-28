@@ -15,3 +15,5 @@ env:
 
 train:
   steps: 200000
+  amp: false                   # tiny MLPs gain nothing from fp16, and the
+                               # anchor is a debugging tool: no fp16 risk (D14)
