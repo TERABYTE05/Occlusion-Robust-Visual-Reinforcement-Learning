@@ -100,22 +100,108 @@ def test_the_critic_loss_reaches_the_encoder():
 
 
 def test_the_actor_loss_does_not_reach_the_encoder():
-    """INVARIANT: the actor is blocked from both encoders (CLAUDE.md, DrQ-v2)."""
+    """INVARIANT: the actor is blocked from the encoders (CLAUDE.md, §4.2).
+
+    ``update_actor`` takes the observation, not a representation, precisely so
+    that the routing lives in the agent rather than in every call site.
+    """
     agent = make_agent(LearnedEncoder())
     obs = torch.as_tensor(make_batch()["obs"])
 
-    z = agent.encoder(obs)
-    assert z.requires_grad, "the representation must carry a graph to begin with"
+    assert agent.encoder(obs).requires_grad, "the encoder must carry a graph to begin with"
 
     for p in agent.encoder.parameters():
         p.grad = None
-    agent.update_actor(z, step=0)
+    agent.update_actor(obs, step=0)
 
     for p in agent.encoder.parameters():
         assert p.grad is None or torch.all(p.grad == 0), (
-            "the actor update must detach the representation; letting its "
-            "gradients into the encoder silently changes the method"
+            "the actor update must detach before the encoder; letting its "
+            "gradients in silently changes the method"
         )
+
+
+def test_the_actor_optimizer_owns_psi_actor_only_when_dualized():
+    """Algorithm 1 steps psi_actor in UpdateActor, never in UpdateCritic (D20)."""
+
+    class DualEncoder(nn.Module):
+        """Minimal stand-in with the dualized ownership interface."""
+
+        def __init__(self):
+            super().__init__()
+            self.trunk = nn.Linear(OBS, OBS)
+            self.psi_actor = nn.Linear(OBS, OBS)
+            self.psi_critic = nn.Linear(OBS, OBS)
+            self.repr_dim = OBS
+
+        def critic_repr(self, obs):
+            return self.psi_critic(self.trunk(obs.float()))
+
+        def actor_repr(self, obs):
+            return self.psi_actor(self.trunk(obs.float()).detach())
+
+        def actor_parameters(self):
+            return list(self.psi_actor.parameters())
+
+        def critic_parameters(self):
+            return list(self.trunk.parameters()) + list(self.psi_critic.parameters())
+
+        def forward(self, obs):
+            return self.critic_repr(obs)
+
+    encoder = DualEncoder()
+    agent = make_agent(encoder)
+
+    owned_by_actor = {id(p) for group in agent.actor_opt.param_groups for p in group["params"]}
+    owned_by_encoder = {id(p) for group in agent.encoder_opt.param_groups for p in group["params"]}
+
+    assert all(id(p) in owned_by_actor for p in encoder.psi_actor.parameters()), (
+        "psi_actor must be stepped by the actor's optimizer or it never trains"
+    )
+    assert owned_by_actor.isdisjoint(owned_by_encoder)
+
+    before = encoder.psi_actor.weight.detach().clone()
+    agent.update(make_batch(), step=0)
+    assert not torch.allclose(before, encoder.psi_actor.weight), "psi_actor did not move"
+
+
+def test_the_trunk_is_not_moved_by_the_actor_in_a_dualized_agent():
+    """The encoders stay the critic's, dualization or not."""
+
+    class DualEncoder(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.trunk = nn.Linear(OBS, OBS)
+            self.psi_actor = nn.Linear(OBS, OBS)
+            self.psi_critic = nn.Linear(OBS, OBS)
+            self.repr_dim = OBS
+
+        def critic_repr(self, obs):
+            return self.psi_critic(self.trunk(obs.float()))
+
+        def actor_repr(self, obs):
+            return self.psi_actor(self.trunk(obs.float()).detach())
+
+        def actor_parameters(self):
+            return list(self.psi_actor.parameters())
+
+        def critic_parameters(self):
+            return list(self.trunk.parameters()) + list(self.psi_critic.parameters())
+
+        def forward(self, obs):
+            return self.critic_repr(obs)
+
+    encoder = DualEncoder()
+    agent = make_agent(encoder)
+    for p in encoder.parameters():
+        p.grad = None
+
+    agent.update_actor(torch.as_tensor(make_batch()["obs"]), step=0)
+
+    for name, param in encoder.trunk.named_parameters():
+        assert param.grad is None or torch.all(param.grad == 0), f"trunk.{name}"
+    assert any(p.grad is not None and torch.any(p.grad != 0)
+               for p in encoder.psi_actor.parameters())
 
 
 # -- targets ----------------------------------------------------------------

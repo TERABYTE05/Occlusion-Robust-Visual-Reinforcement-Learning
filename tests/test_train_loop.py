@@ -109,3 +109,34 @@ def test_every_episode_starts_with_add_first():
             )
 
     assert len(buffer) == 12
+
+
+# -- what gets stored vs what gets acted on ---------------------------------
+
+
+def test_the_buffer_receives_a_single_frame_not_the_stack():
+    """Storing stacks puts every frame in the buffer three times -- the 254 GB
+    path CLAUDE.md forbids. The acting path and the storage path deliberately
+    carry different shapes, and conflating them is a real bug that only shows up
+    when a pixel run starts."""
+    from src.train import _store_obs, pixel_obs
+
+    stack = np.zeros((9, 84, 84), dtype=np.uint8)
+    stack[6:9] = 200  # the newest frame, last three channels
+    stored = _store_obs(pixel_obs, {"pixels": stack, "proprio": np.zeros(13, np.float32)},
+                        uses_pixels=True)
+
+    assert stored["pixels"].shape == (84, 84, 3), "the buffer stores single frames"
+    assert stored["pixels"].dtype == np.uint8
+    assert np.all(stored["pixels"] == 200), "it must be the newest frame, not the oldest"
+
+
+def test_the_anchor_stores_the_dummy_frame():
+    from src.train import _store_obs, flatten_state_obs
+
+    obs = {"observation": np.zeros(25, np.float32),
+           "achieved_goal": np.zeros(3, np.float32),
+           "desired_goal": np.zeros(3, np.float32)}
+    stored = _store_obs(flatten_state_obs, obs, uses_pixels=False)
+    assert stored["pixels"].shape == (1, 1, 3)
+    assert stored["proprio"].shape == (28,)

@@ -13,9 +13,8 @@ reproduced from something that was committed.
 Two paths share this loop. The **state anchor** (``env.pixels: false``) sees
 the ground-truth state and exists to prove the task, the reward, goal
 conditioning and the DDPG core before any vision enters. The **pixel path**
-sees stacked frames plus the 13-D proprioception slice; it needs the fusion
-module and SimplexNorm, which do not exist yet, and is wired here only as far
-as the observation handling.
+sees stacked frames plus the 13-D proprioception slice, fused by ``h_psi``
+(shared for Configs A and B, dualized and normalized for Config C).
 
 The anchor stores a 1x1 dummy frame in the replay buffer rather than using a
 second, simpler buffer. That is deliberate: it means the anchor exercises the
@@ -39,7 +38,8 @@ from .buffer.replay import ReplayBuffer
 from .envs.make_env import make_env
 from .envs.proprio import PROPRIO_OBS_DIM
 from .eval import evaluate
-from .models.encoders import ImageEncoder, ProprioEncoder, StateEncoder
+from .models.encoders import StateEncoder
+from .models.multimodal import MultimodalEncoder
 from .utils.checkpoint import REPLAY_NAME, load_checkpoint, save_checkpoint
 from .utils.config import load_config
 from .utils.gl import resolved_backend
@@ -83,8 +83,14 @@ def to_agent_batch(batch: Mapping[str, Any], pixels: bool) -> dict[str, np.ndarr
     where episodes end, so it is the only one that can know whether a window
     was cut short and whether the bootstrap survives (D12).
     """
-    obs = batch["pixels"] if pixels else batch["proprio"]
-    next_obs = batch["next_pixels"] if pixels else batch["next_proprio"]
+    if pixels:
+        # The multimodal encoder consumes both streams, so the observation stays
+        # a dict all the way through rather than being flattened here.
+        obs = {"pixels": batch["pixels"], "proprio": batch["proprio"]}
+        next_obs = {"pixels": batch["next_pixels"], "proprio": batch["next_proprio"]}
+    else:
+        obs = batch["proprio"]
+        next_obs = batch["next_proprio"]
     return {
         "obs": obs,
         "next_obs": next_obs,
@@ -118,38 +124,6 @@ def assert_finite(metrics: Mapping[str, float], step: int) -> None:
 # -- assembly ---------------------------------------------------------------
 
 
-class _PixelEncoder(torch.nn.Module):
-    """Placeholder stack for the pixel path. **Not runnable as an experiment.**
-
-    It concatenates the image and proprioception representations and stops
-    there. The paper's fusion module -- in *every* configuration, including the
-    naive baseline -- then projects that concatenation through a fully-connected
-    layer down to ``d = 128`` (B.1.3). Configs A and B differ from C by having
-    no LayerNorm and no SimplexNorm after that projection, not by having no
-    projection at all.
-
-    Omitting it is not a small simplification. The flattened CNN output is
-    39200-D, so the actor's first layer alone would be 39200x512 = 20M
-    parameters, and with twin critics, their targets and Adam's two moments a
-    single checkpoint runs to roughly 900 MB -- about 24 GB across the nine
-    production runs. Disk exhaustion is what forced the September platform
-    migration once already.
-
-    So this exists only to let the observation handling be written and tested.
-    ``src/models/fusion.py`` (SK) replaces it, and no pixel run should start
-    before it does.
-    """
-
-    def __init__(self, image_size: int, frame_stack: int):
-        super().__init__()
-        self.image = ImageEncoder(in_channels=3 * frame_stack, image_size=image_size)
-        self.proprio = ProprioEncoder()
-        self.repr_dim = self.image.repr_dim + self.proprio.repr_dim
-
-    def forward(self, obs):
-        return torch.cat([self.image(obs["pixels"]), self.proprio(obs["proprio"])], dim=-1)
-
-
 def build_agent(cfg: Mapping[str, Any], env, device: str) -> tuple[DDPGAgent, Any, bool]:
     """Return ``(agent, obs_fn, uses_pixels)`` for this config."""
     env_cfg = cfg.get("env", {})
@@ -157,7 +131,11 @@ def build_agent(cfg: Mapping[str, Any], env, device: str) -> tuple[DDPGAgent, An
     action_dim = int(env.action_space.shape[0])
 
     if uses_pixels:
-        encoder: torch.nn.Module = _PixelEncoder(
+        # f_xi + g_zeta + h_psi. Whether h_psi is shared or dualized, and whether
+        # it normalizes, is read from the config -- that difference is the
+        # experiment (Configs A/B vs C).
+        encoder: torch.nn.Module = MultimodalEncoder(
+            cfg,
             image_size=int(env_cfg.get("image_size", 84)),
             frame_stack=int(env_cfg.get("frame_stack", 3)),
         )
@@ -187,9 +165,20 @@ def build_buffer(cfg: Mapping[str, Any], obs_dim: int, action_dim: int, uses_pix
 
 
 def _store_obs(obs_fn, obs, uses_pixels: bool) -> dict[str, np.ndarray]:
+    """What goes into the replay buffer, which is not what the policy acts on.
+
+    The acting path carries a ``(3k, H, W)`` stack so the policy has temporal
+    context. The buffer stores **single** frames in ``(H, W, 3)`` and rebuilds
+    stacks at sample time -- storing stacks would put every frame in the buffer
+    three times, which is the 254 GB path (CLAUDE.md, Conventions).
+
+    The newest frame is the last three channels of the stack, because
+    ``FrameStack`` concatenates oldest-first.
+    """
     if uses_pixels:
         encoded = obs_fn(obs)
-        return {"pixels": encoded["pixels"], "proprio": encoded["proprio"]}
+        newest = np.ascontiguousarray(encoded["pixels"][-3:].transpose(1, 2, 0))
+        return {"pixels": newest, "proprio": encoded["proprio"]}
     return {"pixels": _DUMMY_FRAME, "proprio": obs_fn(obs)}
 
 

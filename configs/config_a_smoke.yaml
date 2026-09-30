@@ -1,0 +1,15 @@
+# Pixel-path shakedown for the naive baseline (shared fusion, no normalization,
+# no occlusion). Pairs with config_c_smoke to prove both fusion paths run.
+_base_: config_a_concat_noocc.yaml
+name: config_a_smoke
+
+train:
+  steps: 600
+  seed_steps: 150
+  eval_every: 300
+  eval_episodes: 2
+  checkpoint_every: 300
+  amp: false
+
+buffer:
+  capacity: 2000
