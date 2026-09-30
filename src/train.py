@@ -145,7 +145,10 @@ def build_agent(cfg: Mapping[str, Any], env, device: str) -> tuple[DDPGAgent, An
         encoder = StateEncoder(flatten_state_obs(sample).shape[0])
         obs_fn = flatten_state_obs
 
-    agent = DDPGAgent(encoder, action_dim, cfg.get("agent", {}), device=device)
+    agent = DDPGAgent(
+        encoder, action_dim, cfg.get("agent", {}), device=device,
+        amp=bool(cfg.get("train", {}).get("amp", False)),
+    )
     return agent, obs_fn, uses_pixels
 
 

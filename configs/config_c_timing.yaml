@@ -1,0 +1,20 @@
+# Throughput measurement against the REAL agent, not a proxy.
+#
+# benchmark_fps.py stage 4 drives a single Linear head and one backward pass; the
+# training loop drives the fusion module, the actor, twin critics, target
+# networks and two backward passes. Its 15.1 FPS reading is therefore an upper
+# bound, and it sits 0.7% above the 15 FPS threshold that decides 3 seeds vs 2.
+#
+# Every proxy measurement of throughput on this project has been wrong (a failed
+# fan, then missing replay-sampling cost, now missing half the network), so D4 is
+# locked from this instead: Config C -- the heaviest configuration -- run for real
+# on an idle GPU with frequent evals so FPS lands quickly.
+_base_: config_c_dual_occ.yaml
+name: config_c_timing
+
+train:
+  steps: 4000
+  seed_steps: 500
+  eval_every: 1000
+  eval_episodes: 2
+  checkpoint_every: 100000

@@ -188,3 +188,52 @@ def test_parameter_ownership_splits_by_configuration():
 
     naive_owned = {id(p) for p in naive.critic_parameters()}
     assert naive_owned == {id(p) for p in naive.parameters()}
+
+
+# -- the trunk runs once ----------------------------------------------------
+
+
+def test_both_reprs_runs_the_trunk_once():
+    """Algorithm 1 encodes each observation once and feeds both fusion heads.
+
+    Calling critic_repr and actor_repr separately re-runs the CNN, which is the
+    dominant cost in the loop -- the naive wiring paid for four CNN forwards per
+    update where two are needed, and it showed up as a 2x throughput loss that
+    AMP could not touch.
+    """
+    encoder = build("config_c_dual_occ")
+    calls = {"n": 0}
+    inner = encoder.image.forward
+
+    def counting(x):
+        calls["n"] += 1
+        return inner(x)
+
+    encoder.image.forward = counting
+    encoder.both_reprs(obs())
+    assert calls["n"] == 1, f"the image encoder ran {calls['n']} times, expected 1"
+
+
+def test_both_reprs_agrees_with_the_separate_paths():
+    """Speed must not change the values."""
+    encoder = build("config_c_dual_occ")
+    encoder.eval()
+    sample = obs()
+    z_c, z_a = encoder.both_reprs(sample)
+    assert torch.allclose(z_c, encoder.critic_repr(sample), atol=1e-6)
+    assert torch.allclose(z_a, encoder.actor_repr(sample), atol=1e-6)
+
+
+def test_both_reprs_keeps_the_routing_for_each_configuration():
+    dual = build("config_c_dual_occ")
+    z_c, z_a = dual.both_reprs(obs())
+    z_a.sum().backward(retain_graph=True)
+    assert all(p.grad is None or torch.all(p.grad == 0) for p in dual.image.parameters()), (
+        "the actor must still not reach f_xi"
+    )
+    assert any(p.grad is not None and torch.any(p.grad != 0)
+               for p in dual.fusion.actor_head.parameters()), "psi_actor must still learn"
+
+    naive = build("config_a_concat_noocc")
+    _, z_a_naive = naive.both_reprs(obs())
+    assert not z_a_naive.requires_grad, "the conventional actor still owns nothing here"

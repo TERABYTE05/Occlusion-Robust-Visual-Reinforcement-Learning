@@ -355,3 +355,22 @@ def test_saving_leaves_no_temporary_file_behind(tmp_path):
     path = tmp_path / "replay.pt"
     buffer.save(path)
     assert [p.name for p in tmp_path.iterdir()] == ["replay.pt"]
+
+
+def test_batched_stack_reconstruction_matches_the_single_form():
+    """stacks_at is a speed fix; it must return exactly what the loop returned."""
+    buffer = make_buffer(capacity=400)
+    _fill(buffer, 300, episode_length=20)
+    idx = buffer.sample_indices(64)
+    batched = buffer.stacks_at(idx)
+    for row, absolute in enumerate(idx):
+        assert np.array_equal(batched[row], buffer.stack_at(int(absolute))), absolute
+
+
+def test_batched_reconstruction_clamps_at_episode_starts_too():
+    buffer = make_buffer()
+    fill_episode(buffer, [10, 20, 30, 40])
+    batched = buffer.stacks_at(np.array([0, 1, 2, 3]))
+    assert [frame_values(s) for s in batched] == [
+        [10, 10, 10], [10, 10, 20], [10, 20, 30], [20, 30, 40],
+    ]

@@ -155,6 +155,25 @@ class ReplayBuffer:
         frames = [self._frames[self._slot(i)].transpose(2, 0, 1) for i in indices]
         return np.concatenate(frames, axis=0)
 
+    def stacks_at(self, absolute: np.ndarray) -> np.ndarray:
+        """``stack_at`` for a whole batch, as ``(B, 3k, H, W)``.
+
+        One fancy-index gather instead of a Python loop with a transpose and a
+        concatenate per sample. At 84x84 the loop form cost ~19 ms for a batch of
+        256 (twice, for obs and next_obs), which is a quarter of the training
+        step -- invisible at the 1x1 frame size the state anchor uses, which is
+        how it survived the first round of profiling.
+        """
+        absolute = np.asarray(absolute, dtype=np.int64)
+        ages = self._age[absolute % self.capacity]
+        offsets = np.arange(self.frame_stack - 1, -1, -1, dtype=np.int64)
+        # clamp at the episode start exactly as stack_at does
+        back = np.minimum(offsets[None, :], ages[:, None])
+        slots = (absolute[:, None] - back) % self.capacity
+        frames = self._frames[slots]                      # (B, k, H, W, 3)
+        b, k, h, w, c = frames.shape
+        return frames.transpose(0, 1, 4, 2, 3).reshape(b, k * c, h, w)
+
     def _is_sampleable(self, absolute: int) -> bool:
         slot = self._slot(absolute)
         if not self._has_next[slot]:
@@ -288,12 +307,12 @@ class ReplayBuffer:
         terminated = np.array([window["terminated"] for window in windows], dtype=bool)
 
         return {
-            "pixels": np.stack([self.stack_at(i) for i in indices]),
+            "pixels": self.stacks_at(indices),
             "proprio": self._proprio[slots].copy(),
             "action": self._actions[slots].copy(),
             "reward": np.array([window["reward"] for window in windows], dtype=np.float32),
             "discount": np.array([window["discount"] for window in windows], dtype=np.float32),
-            "next_pixels": np.stack([self.stack_at(i) for i in finals]),
+            "next_pixels": self.stacks_at(np.asarray(finals)),
             "next_proprio": self._proprio[[self._slot(i) for i in finals]].copy(),
             "terminated": terminated,
             "truncated": np.array([window["truncated"] for window in windows], dtype=bool),

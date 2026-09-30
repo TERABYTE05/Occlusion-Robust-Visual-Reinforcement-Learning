@@ -31,7 +31,10 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from src.envs.fetch_pixels import ENV_ID, PixelProprioWrapper, make_raw_env  # noqa: E402
 from src.envs.make_env import FrameStack  # noqa: E402
+from src.agent.drqv2 import DDPGAgent  # noqa: E402
 from src.buffer.replay import ReplayBuffer  # noqa: E402
+from src.models.multimodal import MultimodalEncoder  # noqa: E402
+from src.utils.config import load_config  # noqa: E402
 from src.envs.occlusion import make_occluder  # noqa: E402
 from src.envs.proprio import PROPRIO_OBS_DIM  # noqa: E402
 from src.models.encoders import ImageEncoder, ProprioEncoder  # noqa: E402
@@ -141,35 +144,47 @@ def _prefilled_buffer(args):
 
 
 def stage_full(args, rng, device):
+    """The real training step: the actual agent, not a stand-in.
+
+    Earlier versions of this stage drove a single Linear head over the encoders
+    and reported ~35 FPS, then ~15 FPS once replay sampling was included. Both
+    were upper bounds on a loop far lighter than training, because the stage
+    omitted the fusion module, the actor, the twin critics, the target networks
+    and the second backward pass -- while its printed verdict decided how many
+    seeds the project could afford.
+
+    Every proxy measurement of throughput on this project has been wrong: a
+    failed GPU fan in September, then an O(buffer) sampling cost, then half the
+    network. So this stage now builds the configuration's real agent and calls
+    its real update. Config C is the default because it is the heaviest of the
+    three, and the matrix has to fit the worst case.
+    """
     env = _pixel_env(args)
-    image_enc, proprio_enc = _encoders(args, device)
-    head = torch.nn.Linear(image_enc.repr_dim + proprio_enc.repr_dim, 1).to(device)
-    params = list(image_enc.parameters()) + list(proprio_enc.parameters()) + list(head.parameters())
-    optimiser = torch.optim.Adam(params, lr=1e-4)
-
-    use_amp = device.type == "cuda"
-    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
-
-    # Draw from a real replay buffer at production fill, not a resident batch.
-    # An earlier version of this script used a resident tensor and said sampling
-    # was not measured; that hid an O(buffer) sampling cost which put a ~31 FPS
-    # ceiling on the whole loop and was invisible here while it sized the run
-    # matrix at G4. Whatever the loop pays per step, this benchmark has to pay.
+    cfg = load_config(args.config)
+    encoder = MultimodalEncoder(
+        cfg, image_size=args.image_size, frame_stack=args.frame_stack
+    )
+    agent = DDPGAgent(
+        encoder,
+        action_dim=int(env.action_space.shape[0]),
+        cfg=cfg.get("agent", {}),
+        device=device,
+    )
     buffer = _prefilled_buffer(args)
 
     def update(obs):
         batch = buffer.sample(args.batch_size)
-        batch_pixels = torch.as_tensor(batch["pixels"], device=device)
-        batch_proprio = torch.as_tensor(batch["proprio"], device=device)
-        with torch.amp.autocast("cuda", enabled=use_amp):
-            features = torch.cat(
-                [image_enc(batch_pixels), proprio_enc(batch_proprio)], dim=-1
-            )
-            loss = head(features).pow(2).mean()
-        optimiser.zero_grad(set_to_none=True)
-        scaler.scale(loss).backward()
-        scaler.step(optimiser)
-        scaler.update()
+        agent.update(
+            {
+                "obs": {"pixels": batch["pixels"], "proprio": batch["proprio"]},
+                "next_obs": {"pixels": batch["next_pixels"], "proprio": batch["next_proprio"]},
+                "action": batch["action"],
+                "reward": batch["reward"],
+                "discount": batch["discount"],
+                "bootstrap": batch["bootstrap"],
+            },
+            step=0,
+        )
 
     try:
         return _run_env_loop(env, args.steps, rng, per_step=update)
@@ -202,6 +217,9 @@ def main():
     p.add_argument("--image-size", type=int, default=84)
     p.add_argument("--frame-stack", type=int, default=3)
     p.add_argument("--batch-size", type=int, default=256)
+    p.add_argument("--config", default="configs/config_c_dual_occ.yaml",
+                   help="the agent to benchmark; default is Config C, the "
+                        "heaviest of the three")
     p.add_argument("--buffer-capacity", type=int, default=100_000,
                    help="replay fill for stage 4; the production value, "
                         "because sampling cost grew with it once before")
@@ -255,8 +273,9 @@ def main():
         "",
         f"**Verdict:** {verdict(full_fps)}",
         "",
-        "> Stage 4 omits twin critics, the actor, and target updates. Real "
-        "throughput will be lower.",
+        f"> Stage 4 drives the real agent from `{args.config}` -- fusion module, actor, "
+        "twin critics, target networks and both backward passes. It is no longer an "
+        "upper bound.",
     ]
     report = "\n".join(lines)
     print(report)

@@ -100,6 +100,26 @@ class MultimodalEncoder(nn.Module):
             return self.fusion(z_image.detach(), z_prop.detach(), head="actor")
         return self.fusion(z_image, z_prop, head="actor").detach()
 
+    def both_reprs(self, obs: Mapping[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
+        """``(z_mm_c, z_mm_a)`` from **one** pass through the trunk.
+
+        Algorithm 1 computes ``f_xi(aug(o_image))`` and ``g_zeta(o_prop)`` once
+        per observation and feeds the result to both fusion heads. Calling
+        ``critic_repr`` and ``actor_repr`` separately re-runs the CNN, which is
+        roughly seventeen times the cost of a fusion head -- so the naive wiring
+        pays for four CNN forwards per update where two are needed.
+
+        The detach still lands where it must: on the trunk outputs for the
+        dualized path, on the fused vector for the conventional one.
+        """
+        z_image, z_prop = self._encode(obs)
+        z_critic = self.fusion(z_image, z_prop, head="critic")
+        if self.fusion.dualized:
+            z_actor = self.fusion(z_image.detach(), z_prop.detach(), head="actor")
+        else:
+            z_actor = z_critic.detach()
+        return z_critic, z_actor
+
     def forward(self, obs: Mapping[str, torch.Tensor]) -> torch.Tensor:
         """Default path is the critic's, so single-headed callers behave as before."""
         return self.critic_repr(obs)

@@ -44,6 +44,15 @@ def _critic_repr(encoder: nn.Module, obs):
     return getter(obs) if getter is not None else encoder(obs)
 
 
+def _both_reprs(encoder: nn.Module, obs):
+    """``(z_mm_c, z_mm_a)`` with the trunk run once. Falls back to two calls for
+    an encoder that does not offer the combined path."""
+    getter = getattr(encoder, "both_reprs", None)
+    if getter is not None:
+        return getter(obs)
+    return _critic_repr(encoder, obs), _actor_repr(encoder, obs)
+
+
 def _actor_repr(encoder: nn.Module, obs):
     """``z_mm_a`` -- what Eq. 3 scores the critic at, and what the policy acts on.
 
@@ -71,6 +80,7 @@ class DDPGAgent:
         action_dim: int,
         cfg: Mapping[str, Any],
         device: str | torch.device = "cpu",
+        amp: bool = False,
     ):
         self.device = torch.device(device)
         self.cfg = dict(cfg)
@@ -90,6 +100,15 @@ class DDPGAgent:
         # Augmentation belongs to whatever knows about pixels. A state-based
         # encoder supplies none and the update path simply skips it.
         self._augment = getattr(self.encoder, "augment", None)
+
+        # Mixed precision. The SOP commits to it as a hardware adaptation, and
+        # it was declared in the configs long before anything implemented it.
+        # One scaler per loss: the critic and the actor own separate graphs and
+        # separate optimizers, and sharing a scaler across two backward passes
+        # is fiddly enough to get subtly wrong.
+        self.amp = bool(amp) and self.device.type == "cuda"
+        self._critic_scaler = torch.amp.GradScaler("cuda", enabled=self.amp)
+        self._actor_scaler = torch.amp.GradScaler("cuda", enabled=self.amp)
 
         self.actor = Actor(repr_dim, action_dim, hidden_dim).to(self.device)
         self.critic = Critic(repr_dim, action_dim, hidden_dim).to(self.device)
@@ -121,6 +140,12 @@ class DDPGAgent:
     def _tensor(self, value) -> torch.Tensor:
         return torch.as_tensor(np.asarray(value), dtype=torch.float32, device=self.device)
 
+    def _autocast(self):
+        """fp16 where it pays. SimplexNorm forces itself back to fp32 internally,
+        because at tau=1 its exponentials underflow in half precision -- that is
+        fallback-ladder rung 4, pre-empted rather than waited for."""
+        return torch.amp.autocast("cuda", enabled=self.amp)
+
     def _augmented(self, obs):
         """``aug(o_image)``. Applied in the update, never when acting."""
         return self._augment(obs) if self._augment is not None else obs
@@ -146,7 +171,7 @@ class DDPGAgent:
     # -- acting -----------------------------------------------------------
     def act(self, obs, step: int, eval_mode: bool = False) -> np.ndarray:
         """One action for one observation. ``obs`` is unbatched."""
-        with torch.no_grad():
+        with torch.no_grad(), self._autocast():
             # a_t = pi_theta(z_mm_a): the policy acts on its own representation.
             z = _actor_repr(self.encoder, self._obs(obs, batched=False))
             action = self.actor(z)
@@ -165,29 +190,35 @@ class DDPGAgent:
         discount = self._tensor(batch["discount"]).unsqueeze(-1)
         bootstrap = self._tensor(batch["bootstrap"]).unsqueeze(-1)
 
-        with torch.no_grad():
+        with torch.no_grad(), self._autocast():
             next_obs = self._augmented(self._obs(batch["next_obs"]))
             # The action comes from the ACTOR's representation and the bootstrap
             # value is read at the CRITIC's -- Eq. 2 mixes them (D20).
-            action_next = self.actor(_actor_repr(self.encoder, next_obs))
+            z_critic_next, z_actor_next = _both_reprs(self.encoder, next_obs)
+            action_next = self.actor(z_actor_next)
             action_next = (action_next + self._noise(action_next, step)).clamp(-1.0, 1.0)
-            q1, q2 = self.critic_target(_critic_repr(self.encoder, next_obs), action_next)
-            return reward + discount * bootstrap * torch.min(q1, q2)
+            q1, q2 = self.critic_target(z_critic_next, action_next)
+            # fp32 for the target: it is the regression label and half-precision
+            # rounding here would show up as a noise floor on every Q estimate.
+            return reward + discount * bootstrap * torch.min(q1, q2).float()
 
     # -- updates ----------------------------------------------------------
     def update_critic(self, z: torch.Tensor, batch: Mapping[str, Any], step: int) -> dict[str, float]:
-        """Eq. 2. Updates the critics and, through ``z``, the encoder."""
+        """Eq. 2. Updates the critics and, through ``z_mm_c``, the encoders."""
         target = self.td_target(batch, step)
-        q1, q2 = self.critic(z, self._tensor(batch["action"]))
-        loss = F.mse_loss(q1, target) + F.mse_loss(q2, target)
+
+        with self._autocast():
+            q1, q2 = self.critic(z, self._tensor(batch["action"]))
+            loss = F.mse_loss(q1, target.to(q1.dtype)) + F.mse_loss(q2, target.to(q2.dtype))
 
         if self.encoder_opt is not None:
             self.encoder_opt.zero_grad(set_to_none=True)
         self.critic_opt.zero_grad(set_to_none=True)
-        loss.backward()
-        self.critic_opt.step()
+        self._critic_scaler.scale(loss).backward()
+        self._critic_scaler.step(self.critic_opt)
         if self.encoder_opt is not None:
-            self.encoder_opt.step()
+            self._critic_scaler.step(self.encoder_opt)
+        self._critic_scaler.update()
 
         return {
             "critic_loss": float(loss.detach()),
@@ -195,6 +226,10 @@ class DDPGAgent:
         }
 
     def update_actor(self, obs, step: int) -> dict[str, float]:
+        """Public entry point: takes an observation and routes it itself."""
+        return self._actor_step(_actor_repr(self.encoder, obs), step)
+
+    def _actor_step(self, z: torch.Tensor, step: int) -> dict[str, float]:
         """Eq. 3. Updates ``theta`` and, when dualized, ``psi_actor``.
 
         This takes the *observation*, not a representation, because the routing
@@ -202,16 +237,16 @@ class DDPGAgent:
         violate it rather than depending on every call site remembering. The
         encoder decides where the detach goes (D20).
         """
-        z = _actor_repr(self.encoder, obs)
-
-        action = self.actor(z)
-        action = (action + self._noise(action, step)).clamp(-1.0, 1.0)
-        q1, q2 = self.critic(z, action)
-        loss = -torch.min(q1, q2).mean()
+        with self._autocast():
+            action = self.actor(z)
+            action = (action + self._noise(action, step)).clamp(-1.0, 1.0)
+            q1, q2 = self.critic(z, action)
+            loss = -torch.min(q1, q2).mean()
 
         self.actor_opt.zero_grad(set_to_none=True)
-        loss.backward()
-        self.actor_opt.step()
+        self._actor_scaler.scale(loss).backward()
+        self._actor_scaler.step(self.actor_opt)
+        self._actor_scaler.update()
 
         return {"actor_loss": float(loss.detach())}
 
@@ -224,9 +259,11 @@ class DDPGAgent:
     def update(self, batch: Mapping[str, Any], step: int) -> dict[str, float]:
         """One training step: critic, then actor, then the target networks."""
         obs = self._augmented(self._obs(batch["obs"]))
+        with self._autocast():
+            z_critic, z_actor = _both_reprs(self.encoder, obs)
 
-        metrics = self.update_critic(_critic_repr(self.encoder, obs), batch, step)
-        metrics.update(self.update_actor(obs, step))
+        metrics = self.update_critic(z_critic, batch, step)
+        metrics.update(self._actor_step(z_actor, step))
         self.update_target()
         metrics["stddev"] = linear_schedule(self.stddev_schedule, step)
         return metrics
