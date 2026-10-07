@@ -28,6 +28,25 @@ if [[ ! -f src/train.py ]]; then
   exit 3
 fi
 
+# Use the project's own interpreter, never whatever `python` means in the
+# caller's shell. A login shell here activates conda base, whose python has no
+# numpy, and this script is launched from tmux, systemd and cron where nobody
+# has activated anything. Relying on the caller to source the venv has now cost
+# two launch attempts (RUNLOG 2026-10-01, 2026-10-06).
+PYTHON="$PWD/.venv/bin/python"
+
+if [[ ! -x "$PYTHON" ]]; then
+  echo "no interpreter at $PYTHON" >&2
+  echo "create it:  python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt" >&2
+  exit 4
+fi
+
+if ! "$PYTHON" -c "import numpy, torch, mujoco" 2>/dev/null; then
+  echo "$PYTHON cannot import numpy/torch/mujoco -- the venv is incomplete" >&2
+  echo "repair it:  .venv/bin/pip install -r requirements.txt" >&2
+  exit 5
+fi
+
 # -m, not a path: src/train.py uses package-relative imports, and running it as
 # a script puts src/ on sys.path instead of the repo root, which breaks them.
-exec python -m src.train --config "$CONFIG" "$@"
+exec "$PYTHON" -m src.train --config "$CONFIG" "$@"

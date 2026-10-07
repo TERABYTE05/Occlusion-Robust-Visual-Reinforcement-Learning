@@ -1,0 +1,22 @@
+# 50K pilot. Not a production run and not reported.
+#
+# Two jobs. It is the outstanding half of G3 -- "the full method survives 50K
+# steps clean" -- and it is the only evidence available before G4 about where
+# the pixel curves actually sit. The state anchor needed 340K steps to reach 50%
+# success with ground-truth observations and no vision; the pixel configs are
+# strictly harder and share the same 500K budget, so if they are flat at 50K the
+# report needs to say so up front rather than discover it in production.
+_base_: config_c_dual_occ.yaml
+name: config_c_pilot
+
+train:
+  steps: 50000
+  eval_every: 5000
+  eval_episodes: 10
+  checkpoint_every: 25000
+
+buffer:
+  # A 50K-step run can never store more than 50K transitions, so the production
+  # capacity would preallocate 1 GB of frames that are never written. Halving it
+  # is exact, not an approximation -- nothing is evicted at either size.
+  capacity: 50000

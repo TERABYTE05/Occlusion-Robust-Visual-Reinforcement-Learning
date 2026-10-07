@@ -140,3 +140,43 @@ def test_the_anchor_stores_the_dummy_frame():
     stored = _store_obs(flatten_state_obs, obs, uses_pixels=False)
     assert stored["pixels"].shape == (1, 1, 3)
     assert stored["proprio"].shape == (28,)
+
+
+# -- the SOP's 100-episode rolling window -----------------------------------
+
+
+def test_rolling_window_is_empty_safe_and_averages():
+    """The SOP promises rolling curves over a 100-episode window."""
+    from collections import deque
+
+    from src.train import rolling
+
+    assert rolling(deque()) == 0.0
+    assert rolling(deque([1.0, 0.0, 1.0, 0.0])) == pytest.approx(0.5)
+    assert rolling(deque([1.0])) == pytest.approx(1.0)
+
+
+def test_rolling_window_keeps_only_the_last_hundred():
+    from collections import deque
+
+    from src.train import rolling
+
+    window = deque(maxlen=100)
+    for _ in range(100):
+        window.append(0.0)
+    assert rolling(window) == pytest.approx(0.0)
+    for _ in range(100):
+        window.append(1.0)          # pushes every zero out
+    assert len(window) == 100
+    assert rolling(window) == pytest.approx(1.0)
+
+
+def test_rolling_window_reports_before_it_is_full():
+    """A curve flat at zero for 100 episodes then jumping is harder to read."""
+    from collections import deque
+
+    from src.train import rolling
+
+    window = deque(maxlen=100)
+    window.append(1.0)
+    assert rolling(window) == pytest.approx(1.0), "must not wait for 100 episodes"

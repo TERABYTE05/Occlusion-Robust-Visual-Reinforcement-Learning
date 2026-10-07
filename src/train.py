@@ -27,7 +27,9 @@ from __future__ import annotations
 
 import argparse
 import pathlib
+import shutil
 import time
+from collections import deque
 from typing import Any, Mapping
 
 import numpy as np
@@ -102,6 +104,16 @@ def to_agent_batch(batch: Mapping[str, Any], pixels: bool) -> dict[str, np.ndarr
 
 
 # -- guards -----------------------------------------------------------------
+
+
+def rolling(window) -> float:
+    """Mean of a rolling window, 0.0 while it is still empty.
+
+    The window is deliberately *not* required to be full before it reports: a
+    curve that stays flat at zero for its first hundred episodes and then jumps
+    is harder to read than one that starts noisy and settles.
+    """
+    return float(sum(window) / len(window)) if window else 0.0
 
 
 def assert_finite(metrics: Mapping[str, float], step: int) -> None:
@@ -253,6 +265,14 @@ def train(config_path: str, seed: int, resume: bool = False) -> dict[str, float]
     obs, _info = env.reset()
     buffer.add_first(_store_obs(obs_fn, obs, uses_pixels))
     episode_return, episode_steps, episodes = 0.0, 0, 0
+    # The SOP promises "rolling success-rate and episode-return curves (over a
+    # 100-episode window)". That window is over *training* episodes, so it costs
+    # no extra environment steps -- unlike the periodic evaluation, which buys a
+    # noise-free estimate with real rollouts. Both are reported; they are
+    # different quantities and the report needs this one.
+    recent_success: deque[float] = deque(maxlen=100)
+    recent_return: deque[float] = deque(maxlen=100)
+    episode_success = 0.0
     last_time, last_step = time.time(), start_step
     metrics: dict[str, float] = {}
     # len(buffer) is O(capacity); once the batch is available it stays
@@ -266,23 +286,31 @@ def train(config_path: str, seed: int, resume: bool = False) -> dict[str, float]
         else:
             action = agent.act(obs_fn(obs), step=step)
 
-        next_obs, reward, terminated, truncated, _info = env.step(action)
+        next_obs, reward, terminated, truncated, info = env.step(action)
         buffer.add(action, float(reward), _store_obs(obs_fn, next_obs, uses_pixels),
                    terminated=bool(terminated), truncated=bool(truncated))
         episode_return += float(reward)
         episode_steps += 1
+        # FetchPush reports success per step and the block can be pushed back
+        # out again, so an episode counts as a success if the goal was ever
+        # reached -- the same rule the evaluator uses.
+        episode_success = max(episode_success, float(info.get("is_success", 0.0)))
         obs = next_obs
 
         if terminated or truncated:
             episodes += 1
+            recent_success.append(episode_success)
+            recent_return.append(episode_return)
             if writer is not None:
                 writer.add_scalar("train/episode_return", episode_return, step)
                 writer.add_scalar("train/episode_length", episode_steps, step)
+                writer.add_scalar("train/success_rate_100ep", rolling(recent_success), step)
+                writer.add_scalar("train/episode_return_100ep", rolling(recent_return), step)
             obs, _info = env.reset()
             # The buffer raises if a step is recorded without this, so the
             # reset path is load-bearing rather than cosmetic.
             buffer.add_first(_store_obs(obs_fn, obs, uses_pixels))
-            episode_return, episode_steps = 0.0, 0
+            episode_return, episode_steps, episode_success = 0.0, 0, 0.0
 
         if not ready and step >= seed_steps and len(buffer) >= batch_size:
             ready = True
@@ -318,9 +346,9 @@ def train(config_path: str, seed: int, resume: bool = False) -> dict[str, float]
 
     save_checkpoint(out_dir / "final.pt", agent, total_steps, rng,
                     extra={"best_success": best_success, "episodes": episodes})
-    # A finished run has nothing to resume, and this file is ~2.1 GB on the
-    # pixel path. Nine of them left behind is how the last disk filled up.
-    (out_dir / REPLAY_NAME).unlink(missing_ok=True)
+    # A finished run has nothing to resume, and this snapshot is ~2.1 GB on the
+    # pixel path. Nine left behind is how the last disk filled up.
+    shutil.rmtree(out_dir / REPLAY_NAME, ignore_errors=True)
     if writer is not None:
         writer.close()
     env.close()

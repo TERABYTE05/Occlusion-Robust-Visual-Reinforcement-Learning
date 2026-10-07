@@ -31,10 +31,14 @@ import torch
 CHECKPOINT_NAMES = ("latest.pt", "best.pt", "final.pt")
 
 #: The replay snapshot that makes ``--resume`` valid. Not a checkpoint: it holds
-#: no model state, it is written only beside ``latest.pt``, and it is deleted
+#: no model state, it is written only beside ``latest.pt``, and it is removed
 #: when a run finishes, because a finished run has nothing to resume and at
-#: pixel size this file is ~2.1 GB.
-REPLAY_NAME = "replay.pt"
+#: pixel size it is ~2.1 GB.
+#:
+#: It is a *directory* of ``.npy`` files, not a single pickle. Writing it with
+#: ``torch.save`` raised RSS by 7.9 GB to persist 2.12 GB and was killed by
+#: systemd-oomd mid-write, costing the first pilot run (`RUNLOG.md` 2026-10-01).
+REPLAY_NAME = "replay"
 
 
 def save_checkpoint(

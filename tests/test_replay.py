@@ -5,6 +5,8 @@ episode boundary has the right shape and the wrong contents, and it poisons a
 small, constant fraction of every batch for the whole run.
 """
 
+import pathlib
+
 import numpy as np
 import pytest
 
@@ -374,3 +376,60 @@ def test_batched_reconstruction_clamps_at_episode_starts_too():
     assert [frame_values(s) for s in batched] == [
         [10, 10, 10], [10, 10, 20], [10, 20, 30], [20, 30, 40],
     ]
+
+
+def test_saving_the_buffer_does_not_balloon_memory(tmp_path):
+    """The snapshot must stream, not serialise into RAM first.
+
+    `torch.save` pickles the whole payload before writing a byte: on the real
+    100k x 84 x 84 x 3 buffer it raised RSS by 7.9 GB to write 2.12 GB. On a
+    16 GB machine that is an out-of-memory kill, and it is what killed the first
+    pilot run on 2026-10-01 -- systemd-oomd fires on memory *pressure*, so the
+    unit died while reporting only a 2.2 GB peak.
+
+    Measured in a subprocess because `ru_maxrss` is a high-water mark that never
+    falls, so an in-process reading would be polluted by whatever ran before.
+    """
+    import subprocess
+    import sys
+    import textwrap
+
+    script = textwrap.dedent(f"""
+        import resource, numpy as np
+        import sys
+        sys.path.insert(0, {str(pathlib.Path.cwd())!r})
+        from src.buffer.replay import ReplayBuffer
+
+        buf = ReplayBuffer(capacity=20_000, image_size=84, frame_stack=3,
+                           proprio_dim=13, action_dim=4, nstep=3, discount=0.99)
+        before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        buf.save({str(tmp_path / 'r.npz')!r})
+        after = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        print((after - before) * 1024, buf._frames.nbytes)
+    """)
+    out = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    grew, buffer_bytes = (int(v) for v in out.stdout.split())
+
+    assert grew < buffer_bytes // 2, (
+        f"saving a {buffer_bytes/1e6:.0f} MB buffer grew RSS by {grew/1e6:.0f} MB; "
+        "the snapshot is serialising into memory instead of streaming"
+    )
+
+
+def test_a_restored_buffer_survives_a_round_trip_through_the_streaming_format(tmp_path):
+    """Correctness must not be traded for the memory fix."""
+    original = make_buffer(capacity=400)
+    _fill(original, 300, episode_length=20)
+    path = tmp_path / "replay.npz"
+    original.save(path)
+
+    restored = make_buffer(capacity=400)
+    restored.load(path)
+
+    assert len(restored) == len(original)
+    assert restored._next == original._next
+    for absolute in range(original._start, original._next):
+        assert restored._is_sampleable(absolute) == original._is_sampleable(absolute)
+        if original._is_sampleable(absolute):
+            assert restored.nstep_from(absolute) == original.nstep_from(absolute)

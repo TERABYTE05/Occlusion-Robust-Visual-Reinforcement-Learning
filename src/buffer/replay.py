@@ -39,12 +39,18 @@ and ``discount`` is ``gamma ** steps_actually_taken`` rather than a constant.
 
 from __future__ import annotations
 
+import shutil
+
 import numpy as np
 
 #: Rejection rounds before falling back to an exhaustive scan. At ~98%
 #: acceptance a single round almost always fills the batch; this only matters
 #: for a buffer too small or too sparse for rejection to converge.
 _MAX_REJECTION_ROUNDS = 8
+
+#: Rows copied per chunk when restoring. Big enough to be fast, small enough
+#: that the transient copy never approaches the size of the buffer itself.
+_COPY_CHUNK = 4096
 
 
 class ReplayBuffer:
@@ -331,6 +337,19 @@ class ReplayBuffer:
             )
         )
 
+    def _arrays(self) -> dict[str, np.ndarray]:
+        """The stored arrays, by the name they are persisted under."""
+        return {
+            "frames": self._frames,
+            "proprio": self._proprio,
+            "actions": self._actions,
+            "rewards": self._rewards,
+            "terminated": self._terminated,
+            "truncated": self._truncated,
+            "has_next": self._has_next,
+            "age": self._age,
+        }
+
     # -- persistence ------------------------------------------------------
     def save(self, path) -> None:
         """Write the buffer so a resumed run keeps its replay history.
@@ -341,14 +360,21 @@ class ReplayBuffer:
         experiment as an uninterrupted one -- silently, since nothing in the
         curves says a restart happened. Runs are hours long on a shared
         machine and the roadmap expects restarts, so this has to be real.
+
+        **Written with ``np.savez``, never ``torch.save``.** ``torch.save``
+        pickles the whole payload into memory before writing a byte: measured on
+        this buffer it raised RSS by **7.9 GB** to write 2.12 GB, and took 13 s.
+        On a 16 GB machine that is an out-of-memory kill, and it is exactly what
+        killed the first pilot run (`RUNLOG.md` 2026-10-01) -- systemd-oomd fires
+        on memory *pressure*, so the unit died at a reported 2.2 GB peak.
+        ``np.savez`` streams array by array and adds nothing measurable.
         """
         import pathlib
 
-        import torch
-
         path = pathlib.Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
+
+        meta = {
             "geometry": {
                 "capacity": self.capacity,
                 "image_size": self.image_size,
@@ -358,20 +384,24 @@ class ReplayBuffer:
                 "proprio_dim": int(self._proprio.shape[1]),
                 "action_dim": int(self._actions.shape[1]),
             },
-            "frames": self._frames,
-            "proprio": self._proprio,
-            "actions": self._actions,
-            "rewards": self._rewards,
-            "terminated": self._terminated,
-            "truncated": self._truncated,
-            "has_next": self._has_next,
-            "age": self._age,
             "next": self._next,
             "last": self._last,
             "rng": self._rng.bit_generator.state,
         }
+
+        # A directory of .npy files rather than one archive: np.save streams on
+        # the way out and np.load can memory-map on the way back, so neither
+        # direction ever holds a second copy of the 2.12 GB frame store.
         temporary = path.with_name(path.name + ".tmp")
-        torch.save(payload, temporary)
+        if temporary.exists():
+            shutil.rmtree(temporary)
+        temporary.mkdir(parents=True)
+        for name, array in self._arrays().items():
+            np.save(temporary / f"{name}.npy", array)
+        np.save(temporary / "meta.npy", np.array(meta, dtype=object))
+
+        if path.exists():
+            shutil.rmtree(path)
         temporary.replace(path)
 
     def load(self, path) -> None:
@@ -381,38 +411,43 @@ class ReplayBuffer:
         run with a different frame stack or capacity would reconstruct stacks
         that never existed, which is exactly the kind of silent corruption the
         rest of this class is built to prevent.
+
+        Arrays are copied straight into the preallocated storage one at a time,
+        so only the largest of them is ever in flight on top of the buffer.
         """
         import pathlib
 
-        import torch
+        path = pathlib.Path(path)
+        meta = np.load(path / "meta.npy", allow_pickle=True).item()
 
-        payload = torch.load(pathlib.Path(path), map_location="cpu", weights_only=False)
+        if True:
+            expected = {
+                "capacity": self.capacity,
+                "image_size": self.image_size,
+                "frame_stack": self.frame_stack,
+                "nstep": self.nstep,
+                "discount": self.discount,
+                "proprio_dim": int(self._proprio.shape[1]),
+                "action_dim": int(self._actions.shape[1]),
+            }
+            found = meta["geometry"]
+            if found != expected:
+                differences = {
+                    k: (found.get(k), v) for k, v in expected.items() if found.get(k) != v
+                }
+                raise ValueError(
+                    f"replay snapshot does not match this run: {differences} "
+                    "(found, expected). Refusing to restore it."
+                )
 
-        expected = {
-            "capacity": self.capacity,
-            "image_size": self.image_size,
-            "frame_stack": self.frame_stack,
-            "nstep": self.nstep,
-            "discount": self.discount,
-            "proprio_dim": int(self._proprio.shape[1]),
-            "action_dim": int(self._actions.shape[1]),
-        }
-        found = payload["geometry"]
-        if found != expected:
-            differences = {k: (found.get(k), v) for k, v in expected.items() if found.get(k) != v}
-            raise ValueError(
-                f"replay snapshot does not match this run: {differences} "
-                "(found, expected). Refusing to restore it."
-            )
+            for name, target in self._arrays().items():
+                # mmap_mode keeps the file on disk; the copy streams through the
+                # page cache instead of materialising a second full array.
+                source = np.load(path / f"{name}.npy", mmap_mode="r")
+                for lo in range(0, len(target), _COPY_CHUNK):
+                    target[lo : lo + _COPY_CHUNK] = source[lo : lo + _COPY_CHUNK]
+                del source
 
-        self._frames[...] = payload["frames"]
-        self._proprio[...] = payload["proprio"]
-        self._actions[...] = payload["actions"]
-        self._rewards[...] = payload["rewards"]
-        self._terminated[...] = payload["terminated"]
-        self._truncated[...] = payload["truncated"]
-        self._has_next[...] = payload["has_next"]
-        self._age[...] = payload["age"]
-        self._next = int(payload["next"])
-        self._last = payload["last"]
-        self._rng.bit_generator.state = payload["rng"]
+        self._next = int(meta["next"])
+        self._last = meta["last"]
+        self._rng.bit_generator.state = meta["rng"]
