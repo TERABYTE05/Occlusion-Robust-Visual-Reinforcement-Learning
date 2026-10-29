@@ -52,7 +52,7 @@ def test_both_modalities_reach_the_output():
 
 def test_a_normalised_head_outputs_sixteen_simplices():
     """d=128 with V=8 gives L=16 across the concatenation, whichever half."""
-    head = FusionHead(IMG, PROP, feature_dim=D, normalize=True, per_partition=V)
+    head = FusionHead(IMG, PROP, feature_dim=D, normalization="layernorm_simplexnorm", per_partition=V)
     out = head(*inputs())
     assert torch.all(out >= 0.0)
     assert torch.allclose(out.view(B, L, V).sum(dim=-1), torch.ones(B, L), atol=1e-5)
@@ -62,7 +62,7 @@ def test_the_normalisation_order_is_linear_then_layernorm_then_simplexnorm():
     """INVARIANT: not reordered, not fused, none of them dropped."""
     from src.models.norms import SimplexNorm
 
-    head = FusionHead(IMG, PROP, feature_dim=D, normalize=True, per_partition=V)
+    head = FusionHead(IMG, PROP, feature_dim=D, normalization="layernorm_simplexnorm", per_partition=V)
     for branch in (head.image_branch, head.proprio_branch):
         kinds = [type(m) for m in branch]
         assert kinds == [torch.nn.Linear, torch.nn.LayerNorm, SimplexNorm], kinds
@@ -72,7 +72,7 @@ def test_an_unnormalised_head_has_neither_normalisation():
     """Configs A and B are the naive baseline: the projection only."""
     from src.models.norms import SimplexNorm
 
-    head = FusionHead(IMG, PROP, feature_dim=D, normalize=False)
+    head = FusionHead(IMG, PROP, feature_dim=D, normalization="none")
     modules = list(head.modules())
     assert not any(isinstance(m, torch.nn.LayerNorm) for m in modules)
     assert not any(isinstance(m, SimplexNorm) for m in modules)
@@ -81,12 +81,12 @@ def test_an_unnormalised_head_has_neither_normalisation():
 
 def test_the_projection_is_present_even_without_normalisation():
     """A and B still project to d; they differ from C only in the norms (B.1.3)."""
-    head = FusionHead(IMG, PROP, feature_dim=D, normalize=False)
+    head = FusionHead(IMG, PROP, feature_dim=D, normalization="none")
     assert head(*inputs()).shape == (B, D)
 
 
 def test_gradients_reach_both_projections():
-    head = FusionHead(IMG, PROP, feature_dim=D, normalize=True, per_partition=V)
+    head = FusionHead(IMG, PROP, feature_dim=D, normalization="layernorm_simplexnorm", per_partition=V)
     head(*inputs()).sum().backward()
     for name, param in head.named_parameters():
         assert param.grad is not None, name
@@ -97,7 +97,7 @@ def test_gradients_reach_both_projections():
 
 def test_dualized_heads_do_not_share_a_single_parameter():
     """INVARIANT. Sharing them silently reduces Config C to Config B."""
-    fusion = MultimodalFusion(IMG, PROP, feature_dim=D, dualized=True, normalize=True,
+    fusion = MultimodalFusion(IMG, PROP, feature_dim=D, dualized=True, normalization="layernorm_simplexnorm",
                               per_partition=V)
     actor = {id(p) for p in fusion.actor_head.parameters()}
     critic = {id(p) for p in fusion.critic_head.parameters()}
@@ -106,7 +106,7 @@ def test_dualized_heads_do_not_share_a_single_parameter():
 
 
 def test_dualized_heads_produce_different_representations():
-    fusion = MultimodalFusion(IMG, PROP, feature_dim=D, dualized=True, normalize=True,
+    fusion = MultimodalFusion(IMG, PROP, feature_dim=D, dualized=True, normalization="layernorm_simplexnorm",
                               per_partition=V)
     z_image, z_prop = inputs()
     assert not torch.allclose(
@@ -117,7 +117,7 @@ def test_dualized_heads_produce_different_representations():
 
 def test_the_shared_design_really_is_one_module():
     """Fig. 2(b): the conventional baseline has a single fusion module."""
-    fusion = MultimodalFusion(IMG, PROP, feature_dim=D, dualized=False, normalize=False)
+    fusion = MultimodalFusion(IMG, PROP, feature_dim=D, dualized=False, normalization="none")
     assert fusion.actor_head is fusion.critic_head
     z_image, z_prop = inputs()
     assert torch.equal(
@@ -128,14 +128,14 @@ def test_the_shared_design_really_is_one_module():
 
 def test_the_shared_design_counts_its_parameters_once():
     """A duplicated module would double the optimizer's view of the same weights."""
-    fusion = MultimodalFusion(IMG, PROP, feature_dim=D, dualized=False, normalize=False)
+    fusion = MultimodalFusion(IMG, PROP, feature_dim=D, dualized=False, normalization="none")
     assert len(list(fusion.parameters())) == len(list(fusion.critic_head.parameters()))
 
 
 def test_dualization_roughly_doubles_the_fusion_parameters():
-    shared = MultimodalFusion(IMG, PROP, feature_dim=D, dualized=False, normalize=True,
+    shared = MultimodalFusion(IMG, PROP, feature_dim=D, dualized=False, normalization="layernorm_simplexnorm",
                               per_partition=V)
-    dual = MultimodalFusion(IMG, PROP, feature_dim=D, dualized=True, normalize=True,
+    dual = MultimodalFusion(IMG, PROP, feature_dim=D, dualized=True, normalization="layernorm_simplexnorm",
                             per_partition=V)
     n_shared = sum(p.numel() for p in shared.parameters())
     n_dual = sum(p.numel() for p in dual.parameters())
@@ -143,7 +143,7 @@ def test_dualization_roughly_doubles_the_fusion_parameters():
 
 
 def test_an_unknown_head_name_is_refused():
-    fusion = MultimodalFusion(IMG, PROP, feature_dim=D, dualized=True, normalize=True,
+    fusion = MultimodalFusion(IMG, PROP, feature_dim=D, dualized=True, normalization="layernorm_simplexnorm",
                               per_partition=V)
     with pytest.raises(ValueError, match="head"):
         fusion(*inputs(), head="both")
@@ -160,7 +160,7 @@ def test_an_odd_feature_dim_is_refused():
 
 def test_a_half_not_divisible_by_the_partition_size_is_refused():
     with pytest.raises(ValueError, match="divisible"):
-        FusionHead(IMG, PROP, feature_dim=100, normalize=True, per_partition=V)
+        FusionHead(IMG, PROP, feature_dim=100, normalization="layernorm_simplexnorm", per_partition=V)
 
 
 # -- wiring to the real configs ---------------------------------------------
@@ -214,3 +214,61 @@ def test_b_and_c_differ_only_in_fusion_and_normalization():
     c = load_config("configs/config_c_dual_occ.yaml")
     differing = {k for k in b["agent"] if b["agent"][k] != c["agent"].get(k)}
     assert differing == {"fusion", "normalization"}
+
+
+# -- the ablation ladder ----------------------------------------------------
+#
+# One change per rung, so an effect can be attributed to a single component.
+# This is the paper's Fig. 5 decomposition; the original A/B vs C comparison
+# changed three things at once and could attribute nothing.
+
+
+def test_each_rung_adds_exactly_one_module():
+    from src.models.norms import SimplexNorm
+
+    expected = {
+        "none":                  [torch.nn.Linear],
+        "layernorm":             [torch.nn.Linear, torch.nn.LayerNorm],
+        "layernorm_simplexnorm": [torch.nn.Linear, torch.nn.LayerNorm, SimplexNorm],
+        "layernorm_tanh":        [torch.nn.Linear, torch.nn.LayerNorm, torch.nn.Tanh],
+    }
+    for mode, kinds in expected.items():
+        head = FusionHead(IMG, PROP, feature_dim=D, normalization=mode, per_partition=V)
+        for branch in (head.image_branch, head.proprio_branch):
+            assert [type(m) for m in branch] == kinds, (mode, [type(m) for m in branch])
+
+
+def test_the_rungs_bound_the_representation_progressively():
+    """The naive rung is unbounded; every other rung is not.
+
+    This is the pathology the ladder exists to measure: an unbounded fused
+    vector grows during training until it swamps the 4-D action at the critic's
+    input, and the critic goes action-blind (RUNLOG 2026-10-29).
+    """
+    z_image, z_prop = torch.randn(64, IMG) * 30, torch.randn(64, PROP) * 30
+    spans = {}
+    for mode in ("none", "layernorm", "layernorm_simplexnorm", "layernorm_tanh"):
+        head = FusionHead(IMG, PROP, feature_dim=D, normalization=mode, per_partition=V)
+        out = head(z_image, z_prop)
+        spans[mode] = float(out.abs().max())
+
+    assert spans["none"] > 5 * spans["layernorm_simplexnorm"], spans
+    assert spans["layernorm_tanh"] <= 1.0 + 1e-5, spans["layernorm_tanh"]
+    assert 0.0 <= spans["layernorm_simplexnorm"] <= 1.0 + 1e-5, spans
+
+
+def test_an_unknown_normalization_is_refused():
+    with pytest.raises(ValueError, match="unknown normalization"):
+        FusionHead(IMG, PROP, feature_dim=D, normalization="batchnorm")
+
+
+def test_build_fusion_reads_every_rung_from_config():
+    from src.models.norms import SimplexNorm
+
+    for mode, has_sn in (("none", False), ("layernorm", False),
+                         ("layernorm_simplexnorm", True), ("layernorm_tanh", False)):
+        cfg = {"agent": {"feature_dim": D, "fusion": "concat", "normalization": mode,
+                         "simplexnorm": {"per_partition": V, "tau": 1.0}}}
+        f = build_fusion(cfg, image_dim=IMG, proprio_dim=PROP)
+        assert f.critic_head.normalization == mode
+        assert any(isinstance(m, SimplexNorm) for m in f.modules()) is has_sn

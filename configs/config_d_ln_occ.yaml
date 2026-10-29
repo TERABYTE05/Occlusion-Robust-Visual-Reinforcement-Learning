@@ -1,0 +1,18 @@
+# Rung 2 of the ablation ladder: shared fusion + LayerNorm, occlusion.
+#
+# The ladder runs entirely on the occluded task so every rung shares conditions
+# and each step adds exactly one component:
+#
+#   rung 1  B  shared fusion, no normalization          (exists)
+#   rung 2  D  shared fusion, + LayerNorm               <- this file
+#   rung 3  E  shared fusion, + LayerNorm + SimplexNorm (config_e_ln_sn_occ)
+#   rung 4  C  + dualization                            (exists)
+#
+# D -> E isolates SimplexNorm; E -> C isolates dualization. The original A/B vs C
+# comparison changed all three at once and could attribute nothing.
+_base_: config_b_concat_occ.yaml
+name: config_d_ln_occ
+
+agent:
+  fusion: concat
+  normalization: layernorm

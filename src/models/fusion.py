@@ -37,8 +37,22 @@ import torch.nn as nn
 
 from .norms import SimplexNorm
 
-#: Config value that turns the normalizations on. Anything else leaves them off.
-NORMALIZED = "layernorm_simplexnorm"
+#: What may follow the fusion projection. One change per rung, so an ablation can
+#: attribute an effect to a single component (the paper's Fig. 5 decomposition).
+#:
+#:   none                  Linear only -- unbounded. The naive baseline.
+#:   layernorm             Linear -> LayerNorm
+#:   layernorm_simplexnorm Linear -> LayerNorm -> SimplexNorm   (the paper's method)
+#:   layernorm_tanh        Linear -> LayerNorm -> Tanh          (DrQ-v2's trunk)
+#:
+#: `layernorm_tanh` is diagnostic, not one of the paper's variants: DrQ-v2 -- the
+#: implementation the paper builds on -- bounds its representation this way in
+#: every variant. Our `none` rung grows to RMS 25 during training and goes
+#: action-blind, which the paper's own naive baseline does not appear to do
+#: (`RUNLOG.md` 2026-10-29). This rung tests whether the missing bound explains
+#: that difference.
+NORMALIZATIONS = ("none", "layernorm", "layernorm_simplexnorm", "layernorm_tanh")
+NORMALIZED = "layernorm_simplexnorm"  # kept: the config value for the paper's method
 
 #: Config value that turns dualization on.
 DUALIZED = "dual"
@@ -64,11 +78,15 @@ class FusionHead(nn.Module):
         image_dim: int,
         proprio_dim: int,
         feature_dim: int = 128,
-        normalize: bool = False,
+        normalization: str = "none",
         per_partition: int = 8,
         tau: float = 1.0,
     ):
         super().__init__()
+        if normalization not in NORMALIZATIONS:
+            raise ValueError(
+                f"unknown normalization {normalization!r}; expected one of {NORMALIZATIONS}"
+            )
         feature_dim = int(feature_dim)
         if feature_dim % 2 != 0:
             raise ValueError(
@@ -77,10 +95,12 @@ class FusionHead(nn.Module):
             )
 
         self.feature_dim = feature_dim
-        self.normalize = bool(normalize)
+        self.normalization = normalization
+        #: kept for callers that only need "is anything applied after the Linear"
+        self.normalize = normalization != "none"
         half = feature_dim // 2
 
-        if self.normalize and half % per_partition != 0:
+        if normalization == "layernorm_simplexnorm" and half % per_partition != 0:
             raise ValueError(
                 f"each half of feature_dim ({half}) must be divisible by "
                 f"per_partition ({per_partition})"
@@ -90,11 +110,15 @@ class FusionHead(nn.Module):
         self.proprio_branch = self._branch(proprio_dim, half, per_partition, tau)
 
     def _branch(self, in_dim: int, out_dim: int, per_partition: int, tau: float) -> nn.Sequential:
-        # INVARIANT: Linear -> LayerNorm -> SimplexNorm, in this order, or nothing.
+        # INVARIANT for the paper's method: Linear -> LayerNorm -> SimplexNorm, in
+        # this order. The intermediate rungs drop the tail, never reorder it.
         layers: list[nn.Module] = [nn.Linear(in_dim, out_dim)]
-        if self.normalize:
+        if self.normalization != "none":
             layers.append(nn.LayerNorm(out_dim))
+        if self.normalization == "layernorm_simplexnorm":
             layers.append(SimplexNorm(out_dim, per_partition=per_partition, tau=tau))
+        elif self.normalization == "layernorm_tanh":
+            layers.append(nn.Tanh())
         return nn.Sequential(*layers)
 
     def forward(self, z_image: torch.Tensor, z_prop: torch.Tensor) -> torch.Tensor:
@@ -115,7 +139,7 @@ class MultimodalFusion(nn.Module):
         proprio_dim: int,
         feature_dim: int = 128,
         dualized: bool = False,
-        normalize: bool = False,
+        normalization: str = "none",
         per_partition: int = 8,
         tau: float = 1.0,
     ):
@@ -126,7 +150,7 @@ class MultimodalFusion(nn.Module):
         def head() -> FusionHead:
             return FusionHead(
                 image_dim, proprio_dim, feature_dim=feature_dim,
-                normalize=normalize, per_partition=per_partition, tau=tau,
+                normalization=normalization, per_partition=per_partition, tau=tau,
             )
 
         self.critic_head = head()
@@ -157,7 +181,7 @@ def build_fusion(cfg: Mapping[str, Any], image_dim: int, proprio_dim: int) -> Mu
         proprio_dim=proprio_dim,
         feature_dim=int(agent.get("feature_dim", 128)),
         dualized=str(agent.get("fusion", "concat")) == DUALIZED,
-        normalize=str(agent.get("normalization", "none")) == NORMALIZED,
+        normalization=str(agent.get("normalization", "none")),
         per_partition=int(simplex.get("per_partition", 8)),
         tau=float(simplex.get("tau", 1.0)),
     )

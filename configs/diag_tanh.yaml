@@ -1,0 +1,21 @@
+# Phase 1 diagnostic, 100K steps. Does bounding the representation restore the
+# critic's ability to see the action?
+#
+# The naive rung's fused vector grows to RMS 25 (range +/-171) during training
+# against an action in [-1, 1], and the critic's action-sensitivity collapses to
+# 0.21%. DrQ-v2 -- the implementation the paper builds on -- bounds its
+# representation with Linear -> LayerNorm -> Tanh in every variant. If that is
+# what the paper's "naive" baseline retains, ours is degenerate rather than
+# faithful. 100K steps is enough to compare sensitivity and block displacement.
+_base_: config_a_concat_noocc.yaml
+name: diag_tanh
+
+train:
+  steps: 100000
+  eval_every: 10000
+  eval_episodes: 10
+  checkpoint_every: 50000
+
+agent:
+  fusion: concat
+  normalization: layernorm_tanh

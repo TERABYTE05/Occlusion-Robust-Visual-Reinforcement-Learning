@@ -1,0 +1,9 @@
+# Rung 3 of the ablation ladder: shared fusion + LayerNorm + SimplexNorm,
+# occlusion. Identical to Config C except that the fusion module is SHARED
+# rather than dualized, so E -> C isolates dualization on its own.
+_base_: config_b_concat_occ.yaml
+name: config_e_ln_sn_occ
+
+agent:
+  fusion: concat
+  normalization: layernorm_simplexnorm
