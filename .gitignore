@@ -15,7 +15,9 @@ __pycache__/
 .ipynb_checkpoints/
 
 # Run outputs. Checkpoints and TB logs are large and are not source.
-results/
+results/*
+!results/figures/
+!results/figures/**
 !results/.gitkeep
 
 *.pt
