@@ -1,4 +1,3 @@
-# Local-only working documents. Kept current, never pushed.
 CLAUDE.md
 PROGRESS.md
 BENCHMARK.md
@@ -14,9 +13,9 @@ __pycache__/
 .pytest_cache/
 .ipynb_checkpoints/
 
-# Run outputs. Checkpoints and TB logs are large and are not source.
 results/*
 !results/figures/
+!results/rollouts/
 !results/figures/**
 !results/.gitkeep
 

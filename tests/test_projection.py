@@ -1,19 +1,9 @@
-"""The world->pixel projection, checked against MuJoCo's own camera.
-
-tests/test_occlusion.py uses this projection to decide whether the occluder
-covers the block, so if the projection is wrong that test lies. Rather than
-trusting it, compare the camera basis we derive from (azimuth, elevation,
-distance, lookat) against the one MuJoCo builds for the same free camera.
-
-``mjv_updateScene`` is CPU-only, so this runs without a GL context.
-"""
-
 import numpy as np
 import pytest
 
 pytest.importorskip("gymnasium_robotics")
 
-from src.envs.fetch_pixels import (  # noqa: E402
+from src.envs.fetch_pixels import (
     CAMERA_CONFIGS,
     camera_config,
     camera_frame,
@@ -34,7 +24,6 @@ def sim():
 
 
 def _mujoco_camera(env, cfg):
-    """MuJoCo's own free-camera pose for this config."""
     import mujoco
 
     model, data = env.unwrapped.model, env.unwrapped.data
@@ -49,8 +38,6 @@ def _mujoco_camera(env, cfg):
     mujoco.mjv_updateScene(
         model, data, mujoco.MjvOption(), None, cam, mujoco.mjtCatBit.mjCAT_ALL, scene
     )
-    # camera[0] and camera[1] are the left and right stereo eyes, offset along
-    # `right` by ipd/2 each. The mono camera the renderer uses is their mean.
     left, right = scene.camera[0], scene.camera[1]
     position = (np.array(left.pos) + np.array(right.pos)) / 2.0
     fovy = 2 * np.degrees(np.arctan(left.frustum_top / left.frustum_near))
@@ -101,7 +88,7 @@ def test_moving_right_in_the_image_increases_the_column(sim):
     col2, row2 = project_world_to_pixel(base + 0.1 * up, cfg, 84, 84, fovy)
 
     assert col1 > col0 and row1 == pytest.approx(row0, abs=1e-6)
-    assert row2 < row0 and col2 == pytest.approx(col0, abs=1e-6)  # rows grow downwards
+    assert row2 < row0 and col2 == pytest.approx(col0, abs=1e-6)
 
 
 def test_rejects_a_point_behind_the_camera(sim):

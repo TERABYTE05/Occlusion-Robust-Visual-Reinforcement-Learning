@@ -1,9 +1,3 @@
-"""Assembly: config dict in, ready-to-step environment out.
-
-Every run is defined by a config file plus a seed (CLAUDE.md, Conventions), so
-this is the only place environments get built.
-"""
-
 from __future__ import annotations
 
 from collections import deque
@@ -16,12 +10,6 @@ from .occlusion import make_occluder
 
 
 class FrameStack:
-    """Stacks the last ``k`` frames along the channel axis for the acting path.
-
-    The replay buffer stores *single* frames and rebuilds stacks at sample time
-    (CLAUDE.md, Conventions -- storing stacks is the 254 GB path). This wrapper
-    exists only so the policy has something to act on online.
-    """
 
     def __init__(self, env, k: int = 3):
         self.env = env
@@ -36,7 +24,6 @@ class FrameStack:
         return getattr(self.__dict__["env"], name)
 
     def _stacked(self, obs):
-        # (k, H, W, 3) -> (3k, H, W): channel-first, frames concatenated.
         pixels = np.concatenate([f.transpose(2, 0, 1) for f in self._frames], axis=0)
         return {"pixels": pixels, "proprio": obs["proprio"]}
 
@@ -57,16 +44,6 @@ class FrameStack:
 
 
 def make_env(cfg: Mapping[str, Any], seed: int | None = None):
-    """Build the environment described by ``cfg["env"]``.
-
-    Recognised keys, with defaults:
-        id             FetchPushDense-v3
-        camera         v1
-        image_size     84
-        frame_stack    3
-        pixels         True   -- False gives the state-based sanity anchor
-        occlusion      {"mode": "none"}
-    """
     env_cfg = dict(cfg.get("env", {}))
 
     use_pixels = bool(env_cfg.get("pixels", True))
@@ -85,7 +62,6 @@ def make_env(cfg: Mapping[str, Any], seed: int | None = None):
         env.action_space.seed(seed)
 
     if not use_pixels:
-        # State anchor: no rendering at all, so no occlusion and no frame stack.
         return env
 
     occluder = make_occluder(env_cfg.get("occlusion", "none"))

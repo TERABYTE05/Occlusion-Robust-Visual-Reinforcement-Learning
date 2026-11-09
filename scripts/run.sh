@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-# Single run: ./scripts/run.sh configs/config_c_dual_occ.yaml --seed 1
-#
-# Landmine 4: MUJOCO_GL is set here, and only here. Never rely on it being set
-# in a shell profile -- an unset variable lands on osmesa (CPU rendering) on a
-# headless machine and quietly costs the project its schedule.
 set -euo pipefail
 
 export MUJOCO_GL="${MUJOCO_GL:-egl}"
@@ -28,11 +23,6 @@ if [[ ! -f src/train.py ]]; then
   exit 3
 fi
 
-# Use the project's own interpreter, never whatever `python` means in the
-# caller's shell. A login shell here activates conda base, whose python has no
-# numpy, and this script is launched from tmux, systemd and cron where nobody
-# has activated anything. Relying on the caller to source the venv has now cost
-# two launch attempts (RUNLOG 2026-10-01, 2026-10-06).
 PYTHON="$PWD/.venv/bin/python"
 
 if [[ ! -x "$PYTHON" ]]; then
@@ -47,6 +37,4 @@ if ! "$PYTHON" -c "import numpy, torch, mujoco" 2>/dev/null; then
   exit 5
 fi
 
-# -m, not a path: src/train.py uses package-relative imports, and running it as
-# a script puts src/ on sys.path instead of the repo root, which breaks them.
 exec "$PYTHON" -m src.train --config "$CONFIG" "$@"

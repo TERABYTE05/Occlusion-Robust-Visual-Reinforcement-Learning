@@ -1,10 +1,3 @@
-"""Landmine 3. If any of these fail, occlusion leaks and the experiment is void.
-
-The failure these guard against is silent: with object state in ``g_xi`` all
-three configs score identically and the paper's claim becomes untestable rather
-than refuted.
-"""
-
 import numpy as np
 import pytest
 
@@ -65,7 +58,6 @@ def test_build_proprio_appends_the_goal():
 
 
 def test_achieved_goal_is_not_included():
-    """achieved_goal is the block's position -- another route for the leak."""
     obs = {
         "observation": np.zeros(OBSERVATION_DIM, dtype=np.float32),
         "achieved_goal": np.full(3, 999.0, dtype=np.float32),

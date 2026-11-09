@@ -1,22 +1,3 @@
-"""Mechanism-level metrics for a trained checkpoint.
-
-Task success is a blunt instrument here: it is pinned to the block-spawn base
-rate for any policy that does not move the block, so it cannot rank
-configurations that all fail. These three can, and they ordered perfectly with
-success on the first matrix (RUNLOG 2026-10-29):
-
-  representation scale   RMS |z| of the fused vector entering the critic.
-                         Unbounded growth swamps the 4-D action.
-  action sensitivity     |Q(a=+1) - Q(a=-1)| / |Q|. How much the critic's value
-                         depends on the action at all. If ~0 the actor has no
-                         gradient and saturates.
-  actor saturation       fraction of action components at |a| > 0.99.
-  block displacement     cm the block actually moves. More sensitive than
-                         success, which the spawn rate dominates.
-
-    ./scripts/mechanism_probe.py config_c_dual_occ 1
-    ./scripts/mechanism_probe.py --all
-"""
 from __future__ import annotations
 
 import argparse
@@ -27,13 +8,13 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from src.agent.drqv2 import DDPGAgent  # noqa: E402
-from src.envs.make_env import make_env  # noqa: E402
-from src.models.encoders import StateEncoder  # noqa: E402
-from src.models.multimodal import MultimodalEncoder  # noqa: E402
-from src.train import flatten_state_obs, pixel_obs  # noqa: E402
-from src.utils.checkpoint import load_checkpoint  # noqa: E402
-from src.utils.config import load_config  # noqa: E402
+from src.agent.drqv2 import DDPGAgent
+from src.envs.make_env import make_env
+from src.models.encoders import StateEncoder
+from src.models.multimodal import MultimodalEncoder
+from src.train import flatten_state_obs, pixel_obs
+from src.utils.checkpoint import load_checkpoint
+from src.utils.config import load_config
 
 EVAL_SEED = 11000
 
@@ -111,7 +92,7 @@ LADDER = [("config_b_concat_occ", "rung 1  shared, no norm"),
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
+    ap = argparse.ArgumentParser()
     ap.add_argument("run", nargs="?")
     ap.add_argument("seed", nargs="?", type=int, default=1)
     ap.add_argument("--all", action="store_true")
@@ -125,7 +106,7 @@ def main() -> None:
     for run, label in todo:
         try:
             m = measure(run, args.seed, args.episodes)
-        except Exception as exc:                     # a missing run is not fatal
+        except Exception as exc:
             print(f"{label:34}  ! {type(exc).__name__}: {str(exc)[:38]}")
             continue
         if m is None:

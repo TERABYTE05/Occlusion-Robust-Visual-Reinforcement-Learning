@@ -1,0 +1,514 @@
+{
+  "Random actions": {
+    "config": null,
+    "seed": 1,
+    "episodes": [
+      {
+        "start_dist_cm": 11.943895375260992,
+        "end_dist_cm": 11.943895375260992,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 9.333868138427981,
+        "end_dist_cm": 9.333868138427981,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 13.0013492157993,
+        "end_dist_cm": 7.500304761239869,
+        "moved_cm": 6.182453319440912,
+        "success": false
+      },
+      {
+        "start_dist_cm": 25.68435599610826,
+        "end_dist_cm": 25.68435599610826,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 14.889315477990623,
+        "end_dist_cm": 14.889315477990623,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 12.70287750544769,
+        "end_dist_cm": 12.70287750544769,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 23.013851684861635,
+        "end_dist_cm": 23.013851684861635,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 2.449960856655032,
+        "end_dist_cm": 2.449960856655032,
+        "moved_cm": 0.008239872931020686,
+        "success": true
+      },
+      {
+        "start_dist_cm": 14.303771408273095,
+        "end_dist_cm": 14.303771408273095,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 20.27020691960945,
+        "end_dist_cm": 20.27020691960945,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 15.183766659182929,
+        "end_dist_cm": 15.183766659182929,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 3.9043072425898404,
+        "end_dist_cm": 6.117509016414982,
+        "moved_cm": 2.6303212377478706,
+        "success": true
+      },
+      {
+        "start_dist_cm": 15.062633347911053,
+        "end_dist_cm": 15.062633347911053,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 6.124362325576039,
+        "end_dist_cm": 6.124362325576039,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 21.98682514569654,
+        "end_dist_cm": 19.88084906340268,
+        "moved_cm": 5.892469605393289,
+        "success": false
+      },
+      {
+        "start_dist_cm": 17.590732672814287,
+        "end_dist_cm": 17.590732672814287,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 6.163565302480891,
+        "end_dist_cm": 6.163565302480891,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 31.61448298568673,
+        "end_dist_cm": 31.61448298568673,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 15.476836930267124,
+        "end_dist_cm": 15.476836930267124,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 19.976413384677837,
+        "end_dist_cm": 19.976413384677837,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      }
+    ],
+    "success_rate": 0.1,
+    "mean_moved_cm": 0.7422661001204712
+  },
+  "State DDPG anchor": {
+    "config": "state_ddpg_500k",
+    "seed": 1,
+    "episodes": [
+      {
+        "start_dist_cm": 11.943895375260992,
+        "end_dist_cm": 1.269047749342269,
+        "moved_cm": 10.681875898589908,
+        "success": true
+      },
+      {
+        "start_dist_cm": 9.333868138427981,
+        "end_dist_cm": 0.3545602020007198,
+        "moved_cm": 9.594788480334133,
+        "success": true
+      },
+      {
+        "start_dist_cm": 13.0013492157993,
+        "end_dist_cm": 0.8414057800152934,
+        "moved_cm": 13.015722585578917,
+        "success": true
+      },
+      {
+        "start_dist_cm": 25.68435599610826,
+        "end_dist_cm": 2.041488961952529,
+        "moved_cm": 23.940663849630955,
+        "success": true
+      },
+      {
+        "start_dist_cm": 14.889315477990623,
+        "end_dist_cm": 1.1798882317607375,
+        "moved_cm": 14.619532706719115,
+        "success": true
+      },
+      {
+        "start_dist_cm": 12.70287750544769,
+        "end_dist_cm": 4.7790451192569865,
+        "moved_cm": 7.927826216837376,
+        "success": true
+      },
+      {
+        "start_dist_cm": 23.013851684861635,
+        "end_dist_cm": 1.1999100928908213,
+        "moved_cm": 22.01544031336397,
+        "success": true
+      },
+      {
+        "start_dist_cm": 2.449960856655032,
+        "end_dist_cm": 2.449960856655032,
+        "moved_cm": 0.008239872931020686,
+        "success": true
+      },
+      {
+        "start_dist_cm": 14.303771408273095,
+        "end_dist_cm": 2.3914758683253368,
+        "moved_cm": 12.777110502390723,
+        "success": true
+      },
+      {
+        "start_dist_cm": 20.27020691960945,
+        "end_dist_cm": 1.8877158428358611,
+        "moved_cm": 20.47786548208766,
+        "success": true
+      },
+      {
+        "start_dist_cm": 15.183766659182929,
+        "end_dist_cm": 0.9656935530851374,
+        "moved_cm": 14.32790926956681,
+        "success": true
+      },
+      {
+        "start_dist_cm": 3.9043072425898404,
+        "end_dist_cm": 3.9043072425898404,
+        "moved_cm": 0.008239872931020686,
+        "success": true
+      },
+      {
+        "start_dist_cm": 15.062633347911053,
+        "end_dist_cm": 4.3955513875747565,
+        "moved_cm": 12.644267228919926,
+        "success": true
+      },
+      {
+        "start_dist_cm": 6.124362325576039,
+        "end_dist_cm": 2.2807456973515357,
+        "moved_cm": 3.9507150011879597,
+        "success": true
+      },
+      {
+        "start_dist_cm": 21.98682514569654,
+        "end_dist_cm": 4.876119700535695,
+        "moved_cm": 24.50484995524618,
+        "success": true
+      },
+      {
+        "start_dist_cm": 17.590732672814287,
+        "end_dist_cm": 3.684011312172844,
+        "moved_cm": 14.182416090111182,
+        "success": true
+      },
+      {
+        "start_dist_cm": 6.163565302480891,
+        "end_dist_cm": 0.5441876351939838,
+        "moved_cm": 6.369703882430429,
+        "success": true
+      },
+      {
+        "start_dist_cm": 31.61448298568673,
+        "end_dist_cm": 2.7881635518658614,
+        "moved_cm": 31.442502599608744,
+        "success": true
+      },
+      {
+        "start_dist_cm": 15.476836930267124,
+        "end_dist_cm": 0.9637392605410013,
+        "moved_cm": 15.926643255883974,
+        "success": true
+      },
+      {
+        "start_dist_cm": 19.976413384677837,
+        "end_dist_cm": 3.939096547685181,
+        "moved_cm": 16.97006849520116,
+        "success": true
+      }
+    ],
+    "success_rate": 1.0,
+    "mean_moved_cm": 13.76931907797756
+  },
+  "B  shared, no norm": {
+    "config": "config_b_concat_occ",
+    "seed": 1,
+    "episodes": [
+      {
+        "start_dist_cm": 11.943895375260992,
+        "end_dist_cm": 11.943895375260992,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 9.333868138427981,
+        "end_dist_cm": 9.333868138427981,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 13.0013492157993,
+        "end_dist_cm": 13.0013492157993,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 25.68435599610826,
+        "end_dist_cm": 25.68435599610826,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 14.889315477990623,
+        "end_dist_cm": 14.889315477990623,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 12.70287750544769,
+        "end_dist_cm": 12.70287750544769,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 23.013851684861635,
+        "end_dist_cm": 23.013851684861635,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 2.449960856655032,
+        "end_dist_cm": 2.449960856655032,
+        "moved_cm": 0.008239872931020686,
+        "success": true
+      },
+      {
+        "start_dist_cm": 14.303771408273095,
+        "end_dist_cm": 14.303771408273095,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 20.27020691960945,
+        "end_dist_cm": 20.27020691960945,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 15.183766659182929,
+        "end_dist_cm": 15.183766659182929,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 3.9043072425898404,
+        "end_dist_cm": 3.9043072425898404,
+        "moved_cm": 0.008239872931020686,
+        "success": true
+      },
+      {
+        "start_dist_cm": 15.062633347911053,
+        "end_dist_cm": 15.062633347911053,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 6.124362325576039,
+        "end_dist_cm": 6.124362325576039,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 21.98682514569654,
+        "end_dist_cm": 21.98682514569654,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 17.590732672814287,
+        "end_dist_cm": 17.590732672814287,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 6.163565302480891,
+        "end_dist_cm": 6.163565302480891,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 31.61448298568673,
+        "end_dist_cm": 31.61448298568673,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 15.476836930267124,
+        "end_dist_cm": 15.476836930267124,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 19.976413384677837,
+        "end_dist_cm": 19.976413384677837,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      }
+    ],
+    "success_rate": 0.1,
+    "mean_moved_cm": 0.008239872931020686
+  },
+  "C  dual + LN + SN": {
+    "config": "config_c_dual_occ",
+    "seed": 1,
+    "episodes": [
+      {
+        "start_dist_cm": 11.943895375260992,
+        "end_dist_cm": 11.943895375260992,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 9.333868138427981,
+        "end_dist_cm": 9.333868138427981,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 13.0013492157993,
+        "end_dist_cm": 13.0013492157993,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 25.68435599610826,
+        "end_dist_cm": 25.68435599610826,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 14.889315477990623,
+        "end_dist_cm": 14.889315477990623,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 12.70287750544769,
+        "end_dist_cm": 12.70287750544769,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 23.013851684861635,
+        "end_dist_cm": 23.013851684861635,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 2.449960856655032,
+        "end_dist_cm": 2.449960856655032,
+        "moved_cm": 0.008239872931020686,
+        "success": true
+      },
+      {
+        "start_dist_cm": 14.303771408273095,
+        "end_dist_cm": 14.303771408273095,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 20.27020691960945,
+        "end_dist_cm": 20.27020691960945,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 15.183766659182929,
+        "end_dist_cm": 15.183766659182929,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 3.9043072425898404,
+        "end_dist_cm": 3.9043072425898404,
+        "moved_cm": 0.008239872931020686,
+        "success": true
+      },
+      {
+        "start_dist_cm": 15.062633347911053,
+        "end_dist_cm": 15.062633347911053,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 6.124362325576039,
+        "end_dist_cm": 6.124362325576039,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 21.98682514569654,
+        "end_dist_cm": 21.98682514569654,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 17.590732672814287,
+        "end_dist_cm": 17.590732672814287,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 6.163565302480891,
+        "end_dist_cm": 6.163565302480891,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 31.61448298568673,
+        "end_dist_cm": 31.61448298568673,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 15.476836930267124,
+        "end_dist_cm": 15.476836930267124,
+        "moved_cm": 0.008239872931020686,
+        "success": false
+      },
+      {
+        "start_dist_cm": 19.976413384677837,
+        "end_dist_cm": 25.38336214047254,
+        "moved_cm": 6.1736253465167685,
+        "success": false
+      }
+    ],
+    "success_rate": 0.1,
+    "mean_moved_cm": 0.3165091466103081
+  }
+}

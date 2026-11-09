@@ -1,21 +1,12 @@
 #!/usr/bin/env bash
-# One-screen view of the pilot runs.
-#
-#     ./scripts/pilot_status.sh            once
-#     watch -n 30 ./scripts/pilot_status.sh    live
-#
-# Reads TensorBoard under results/, not a log file: the event files are written
-# by the runs themselves and live beside the checkpoints, so this keeps working
-# after any shell, terminal or tool session that launched the runs has gone.
 set -uo pipefail
 cd "$(dirname "$0")/.."
-# Same reason as run.sh: do not depend on the caller having activated anything.
 PYTHON="$PWD/.venv/bin/python"
 [[ -x "$PYTHON" ]] || PYTHON=python
 exec "$PYTHON" - "$@" <<'PY'
 import glob, os, pathlib, subprocess, sys
 
-STEPS, RATE = 50_000, 11.4          # D4: measured steady-state pixel FPS
+STEPS, RATE = 50_000, 11.4
 RUNS = ["config_a_pilot", "config_b_pilot", "config_c_pilot"]
 
 try:

@@ -1,41 +1,10 @@
 #!/usr/bin/env bash
-# The production matrix: every configuration, every seed, unattended and resumable.
-#
-#     ./scripts/run_all.sh --dry-run      show the plan and the time estimate
-#     ./scripts/run_all.sh                run it
-#     SEEDS=2 ./scripts/run_all.sh        the Reduced matrix (fallback ladder rung 1)
-#
-# Launch it detached, because it runs for days:
-#     tmux new -s matrix
-#     ./scripts/run_all.sh 2>&1 | tee -a results/run_all.log
-#     Ctrl+B then D
-#
-# Three properties that matter more than they look:
-#
-#   * **Seed-major order.** All three configs at seed 1, then all three at seed 2,
-#     and so on -- never all seeds of A before touching B. If the Oct 18 freeze
-#     arrives early, seed-major leaves a *complete ablation* at fewer seeds;
-#     config-major would leave three seeds of Config A and no comparison at all.
-#     The report needs A, B and C or it needs nothing.
-#   * **Idempotent.** A run with final.pt is skipped; a run with latest.pt but no
-#     final.pt is resumed, replay history included (D18). Re-running this script
-#     after any interruption picks up exactly where it stopped, so it is safe to
-#     run on a cron, after a reboot, or by a confused human at 2am.
-#   * **One failure does not stop the matrix.** A crashed run is logged and the
-#     next one starts. Losing one seed is bad; losing the eight that would have
-#     run after it is worse.
 
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-#: Seeds per configuration. 3 is the Full matrix (D4); the fallback ladder cuts
-#: this to 2 before it cuts anything else, and cuts steps only after that.
 SEEDS="${SEEDS:-3}"
 
-#: The state-based DDPG baseline. The SOP commits to it as the stand-in for the
-#: paper's SAC-State / TD3-State upper bounds (D19), so it is part of the matrix
-#: and not an optional extra. It renders nothing and runs ~16x faster than a
-#: pixel run, so it costs about 2% of the total.
 STATE_CONFIG="configs/state_ddpg_500k.yaml"
 PIXEL_CONFIGS=(
   configs/config_a_concat_noocc.yaml
@@ -43,8 +12,8 @@ PIXEL_CONFIGS=(
   configs/config_c_dual_occ.yaml
 )
 
-PIXEL_FPS=11.4     # measured against the real agent (D4)
-STATE_FPS=187      # the anchor, no rendering
+PIXEL_FPS=11.4
+STATE_FPS=187
 
 DRY_RUN=0
 [[ "${1:-}" == "--dry-run" ]] && DRY_RUN=1
@@ -57,7 +26,6 @@ from src.utils.config import load_config; print(load_config('$1')['name'])"; }
 config_steps() { ./.venv/bin/python -c "
 from src.utils.config import load_config; print(load_config('$1')['train']['steps'])"; }
 
-# -- build the plan, seed-major -------------------------------------------
 PLAN=()
 for seed in $(seq 1 "$SEEDS"); do
   PLAN+=("$STATE_CONFIG|$seed")
@@ -66,7 +34,6 @@ for seed in $(seq 1 "$SEEDS"); do
   done
 done
 
-# -- what is already done --------------------------------------------------
 total_hours=0
 pending=0; done_already=0; resuming=0
 echo
@@ -93,7 +60,6 @@ echo
 log "$pending to run ($resuming resuming), $done_already already complete"
 log "estimated ${total_hours}h = $(./.venv/bin/python -c "print(f'{$total_hours/24:.1f}')") days of GPU"
 
-# -- preflight -------------------------------------------------------------
 echo
 if ! git diff --quiet || ! git diff --cached --quiet; then
   log "WARNING: working tree is dirty. The code freeze means what runs should"
@@ -120,7 +86,6 @@ if ! ./.venv/bin/python -m pytest tests/ -q >/dev/null 2>&1; then
 fi
 log "tests green"
 
-# -- run -------------------------------------------------------------------
 started=$(date +%s)
 failed=()
 for item in "${PLAN[@]}"; do
@@ -151,7 +116,6 @@ for item in "${PLAN[@]}"; do
   fi
 done
 
-# -- summary ---------------------------------------------------------------
 echo
 log "matrix finished in $(( ($(date +%s) - started) / 3600 ))h"
 if (( ${#failed[@]} )); then

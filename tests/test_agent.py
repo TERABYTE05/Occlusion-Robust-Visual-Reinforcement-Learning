@@ -1,12 +1,3 @@
-"""The DDPG backbone (Noh et al. section 4.2, Eq. 2-3, Algorithm 1).
-
-Most of these guard invariants rather than behaviour, because the failures they
-catch are silent. An agent whose actor gradients reach the encoder still trains
-and still produces a curve; it is just no longer the paper's method. An agent
-that masks the bootstrap on truncation still trains, on FetchPush, where every
-episode truncates, and quietly mislearns the value of every late state.
-"""
-
 import numpy as np
 import pytest
 import torch
@@ -28,7 +19,6 @@ CFG = {
 
 
 class LearnedEncoder(nn.Module):
-    """A stand-in with parameters, so gradient routing is observable."""
 
     def __init__(self):
         super().__init__()
@@ -61,11 +51,7 @@ def make_batch(n=8, terminated=False, reward=1.0, discount=0.9):
     }
 
 
-# -- acting -----------------------------------------------------------------
-
-
 def test_actions_stay_inside_the_action_space_under_large_noise():
-    """The tanh bounds the mean, not the mean plus noise; MuJoCo clips silently."""
     agent = make_agent(stddev_schedule="5.0")
     for _ in range(50):
         action = agent.act(np.random.randn(OBS).astype(np.float32), step=0)
@@ -89,9 +75,6 @@ def test_training_mode_explores():
     assert actions.std(axis=0).sum() > 0, "training actions must carry exploration noise"
 
 
-# -- gradient routing (INVARIANT) -------------------------------------------
-
-
 def test_the_critic_loss_reaches_the_encoder():
     agent = make_agent(LearnedEncoder())
     agent.update(make_batch(), step=0)
@@ -100,11 +83,6 @@ def test_the_critic_loss_reaches_the_encoder():
 
 
 def test_the_actor_loss_does_not_reach_the_encoder():
-    """INVARIANT: the actor is blocked from the encoders (CLAUDE.md, §4.2).
-
-    ``update_actor`` takes the observation, not a representation, precisely so
-    that the routing lives in the agent rather than in every call site.
-    """
     agent = make_agent(LearnedEncoder())
     obs = torch.as_tensor(make_batch()["obs"])
 
@@ -122,10 +100,8 @@ def test_the_actor_loss_does_not_reach_the_encoder():
 
 
 def test_the_actor_optimizer_owns_psi_actor_only_when_dualized():
-    """Algorithm 1 steps psi_actor in UpdateActor, never in UpdateCritic (D20)."""
 
     class DualEncoder(nn.Module):
-        """Minimal stand-in with the dualized ownership interface."""
 
         def __init__(self):
             super().__init__()
@@ -166,7 +142,6 @@ def test_the_actor_optimizer_owns_psi_actor_only_when_dualized():
 
 
 def test_the_trunk_is_not_moved_by_the_actor_in_a_dualized_agent():
-    """The encoders stay the critic's, dualization or not."""
 
     class DualEncoder(nn.Module):
         def __init__(self):
@@ -204,11 +179,7 @@ def test_the_trunk_is_not_moved_by_the_actor_in_a_dualized_agent():
                for p in encoder.psi_actor.parameters())
 
 
-# -- targets ----------------------------------------------------------------
-
-
 def test_a_terminated_transition_drops_the_bootstrap_term():
-    """Landmine 6 / D12, carried through into the TD target."""
     agent = make_agent()
     batch = make_batch(n=4, terminated=True, reward=2.0, discount=0.5)
     target = agent.td_target(batch)
@@ -216,8 +187,7 @@ def test_a_terminated_transition_drops_the_bootstrap_term():
 
 
 def test_the_td_target_uses_the_per_sample_discount():
-    """``discount`` is gamma**steps_taken, not a constant (D12)."""
-    agent = make_agent(stddev_schedule="0.0")  # no target smoothing noise
+    agent = make_agent(stddev_schedule="0.0")
     batch = make_batch(n=4, terminated=False, reward=0.0, discount=0.25)
     target = agent.td_target(batch)
     with torch.no_grad():
@@ -240,9 +210,6 @@ def test_the_target_takes_the_minimum_of_the_twin_critics():
 def test_the_target_does_not_carry_a_gradient():
     agent = make_agent()
     assert not agent.td_target(make_batch()).requires_grad
-
-
-# -- target networks --------------------------------------------------------
 
 
 def test_polyak_moves_the_target_towards_the_online_critic():
@@ -272,9 +239,6 @@ def test_the_target_critic_starts_as_a_copy_of_the_online_critic():
         assert torch.allclose(online, target)
 
 
-# -- metrics ----------------------------------------------------------------
-
-
 def test_update_reports_the_metrics_the_run_log_needs():
     agent = make_agent()
     metrics = agent.update(make_batch(), step=0)
@@ -284,7 +248,6 @@ def test_update_reports_the_metrics_the_run_log_needs():
 
 
 def test_repeated_updates_reduce_the_critic_loss_on_a_fixed_batch():
-    """The cheapest possible check that the optimiser is wired up at all."""
     agent = make_agent(lr=1e-2)
     batch = make_batch(n=32)
     first = agent.update(batch, step=0)["critic_loss"]

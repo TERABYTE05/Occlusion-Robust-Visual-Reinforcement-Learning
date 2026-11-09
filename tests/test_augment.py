@@ -1,5 +1,3 @@
-"""Random-shift augmentation, and above all that one shift covers a whole stack."""
-
 import pytest
 import torch
 
@@ -10,7 +8,6 @@ STACK = 3
 
 
 def ramp_batch(batch=4):
-    """Frames with distinct values everywhere, so a shift is detectable."""
     row = torch.arange(H, dtype=torch.float32).unsqueeze(1).repeat(1, H)
     col = torch.arange(H, dtype=torch.float32).unsqueeze(0).repeat(H, 1)
     frame = row * H + col
@@ -28,7 +25,6 @@ def test_output_shape_matches_input():
 
 
 def test_every_frame_in_a_stack_gets_the_same_shift():
-    """The invariant. Independent shifts would inject fake motion into the stack."""
     torch.manual_seed(0)
     x = ramp_batch(batch=8)
     out = RandomShiftAug(pad=4)(x)
@@ -45,7 +41,6 @@ def test_different_samples_get_different_shifts():
 
 
 def test_shift_is_an_integer_crop_within_the_padding():
-    """Every output must be exactly one of the 2*pad+1 squared possible crops."""
     pad = 4
     torch.manual_seed(0)
     x = ramp_batch(batch=16)
@@ -64,7 +59,6 @@ def test_shift_is_an_integer_crop_within_the_padding():
 
 
 def test_a_constant_image_is_unchanged():
-    """Replicate padding must not leak a black border into the crop."""
     x = torch.full((4, 3 * STACK, H, H), 7.0)
     assert torch.allclose(RandomShiftAug(pad=4)(x), x, atol=1e-5)
 

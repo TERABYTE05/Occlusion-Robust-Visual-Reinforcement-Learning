@@ -1,25 +1,4 @@
 #!/usr/bin/env python
-"""Contact sheets for visual verification of camera and occlusion.
-
-Landmine 5 is silent: at 84x84 the block can be a handful of pixels, the vision
-branch contributes noise, and it reads as "the method doesn't work". The only
-defence is looking at the actual frames, at the actual training resolution,
-across *fresh resets* -- the block spawns somewhere new each time, so one reset
-proves nothing.
-
-    # is the block visible at all?
-    python scripts/contact_sheet.py --n 20 --out results/contact
-
-    # does the mask cover the block wherever it spawns?
-    python scripts/contact_sheet.py --n 20 --occlusion static --compare --annotate
-
-Two files are written per run: `*_true.png` is the grid at true 84x84 and is
-what you judge; `*_view.png` is upscaled so you can see what you are judging.
-
-``--annotate`` marks the block's projected position. Use it once to confirm the
-projection in src/envs/fetch_pixels.py is correct, because tests/test_occlusion.py
-trusts that projection to decide whether the mask covers the block.
-"""
 
 from __future__ import annotations
 
@@ -32,7 +11,7 @@ from PIL import Image, ImageDraw
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from src.envs.fetch_pixels import (  # noqa: E402
+from src.envs.fetch_pixels import (
     ENV_ID,
     PixelProprioWrapper,
     block_world_position,
@@ -41,8 +20,8 @@ from src.envs.fetch_pixels import (  # noqa: E402
     model_fovy,
     project_world_to_pixel,
 )
-from src.envs.occlusion import make_occluder  # noqa: E402
-from src.utils.gl import print_backend  # noqa: E402
+from src.envs.occlusion import make_occluder
+from src.utils.gl import print_backend
 
 
 def _grid(frames, cols, pad=2, bg=(24, 24, 28)):
@@ -59,7 +38,6 @@ def _grid(frames, cols, pad=2, bg=(24, 24, 28)):
 
 
 def _annotate(frame, marks, scale):
-    """Upscale a frame and draw block-position markers on it."""
     h, w = frame.shape[:2]
     img = Image.fromarray(frame).resize((w * scale, h * scale), Image.NEAREST)
     if marks:
@@ -74,7 +52,7 @@ def _annotate(frame, marks, scale):
 
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__)
+    p = argparse.ArgumentParser()
     p.add_argument("--n", type=int, default=20, help="number of fresh resets")
     p.add_argument("--env-id", default=ENV_ID)
     p.add_argument("--camera", default=None)
@@ -93,8 +71,6 @@ def main():
 
     occluder = make_occluder(args.occlusion)
     raw = make_raw_env(env_id=args.env_id, camera=args.camera, render_size=args.image_size)
-    # frame_transform is applied manually below so that --compare can show the
-    # same underlying frame both ways.
     env = PixelProprioWrapper(raw, image_size=args.image_size, frame_transform=None)
 
     cfg = camera_config(args.camera)
@@ -118,7 +94,7 @@ def main():
             col, row = project_world_to_pixel(
                 block_world_position(raw), cfg, args.image_size, args.image_size, fovy
             )
-        except Exception as exc:  # projection is best-effort; never kill the sheet
+        except Exception as exc:
             print(f"[contact] reset {i}: projection failed ({exc})")
             marks.append(None)
             continue

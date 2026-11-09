@@ -1,11 +1,3 @@
-"""Occlusion is applied to the rendered frame, covers the block, and does not
-encode where the block is.
-
-The last of those is the seventh landmine (see src/envs/occlusion.py): a mask
-that tracks the block hands its position back to the encoder, and Config C
-stops measuring anything.
-"""
-
 import numpy as np
 import pytest
 
@@ -65,7 +57,6 @@ def test_default_static_rect_is_inside_the_frame():
 
 
 def test_episode_static_is_fixed_within_an_episode():
-    """If it moved between steps it would track the block and leak its position."""
     occ = EpisodeStaticOccluder(seed=0)
     first = occ.rect_pixels(_frame(), None)
     for _ in range(10):
@@ -87,7 +78,6 @@ def test_tracking_occluder_refuses_to_be_built_by_accident():
 
 
 def test_tracking_occluder_is_unreachable_from_a_config_file():
-    """A config must not be able to select the leaking occluder silently."""
     with pytest.raises(ValueError, match="leaks"):
         make_occluder({"mode": "tracking"})
 
@@ -101,19 +91,8 @@ def test_make_occluder_dispatch():
         make_occluder("nonsense")
 
 
-# ---------------------------------------------------------------------------
-# Needs a real environment. Skips locally, runs on the lab machine.
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.mujoco
 def test_mask_covers_the_block_across_50_fresh_resets():
-    """The block spawns somewhere new each reset -- one reset proves nothing.
-
-    This test trusts the free-camera projection in fetch_pixels.py. Confirm that
-    projection once by eye with `contact_sheet.py --annotate` before believing a
-    green result here.
-    """
     pytest.importorskip("gymnasium_robotics")
 
     from src.envs.fetch_pixels import (

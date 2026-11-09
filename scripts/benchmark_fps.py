@@ -1,20 +1,4 @@
 #!/usr/bin/env python
-"""Four-stage throughput measurement -- the number the whole schedule hangs off.
-
-    stage 1  env.step alone            (no rendering at all)
-    stage 2  + env.render()            (the Landmine 4 cost)
-    stage 3  + encoder forward         (acting)
-    stage 4  + a dummy gradient update (the closest thing to the real loop)
-
-Stage 4 is the number that decides the run matrix at G4. It is deliberately
-*optimistic*: it runs one encoder pair and one backward pass, where the real
-DrQ-v2 step also runs twin critics, an actor, and two target networks. Treat it
-as a ceiling and keep a margin.
-
-    python scripts/benchmark_fps.py --steps 2000
-
-Writes a table to stdout and appends it to BENCHMARK.md.
-"""
 
 from __future__ import annotations
 
@@ -29,16 +13,16 @@ import torch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from src.envs.fetch_pixels import ENV_ID, PixelProprioWrapper, make_raw_env  # noqa: E402
-from src.envs.make_env import FrameStack  # noqa: E402
-from src.agent.drqv2 import DDPGAgent  # noqa: E402
-from src.buffer.replay import ReplayBuffer  # noqa: E402
-from src.models.multimodal import MultimodalEncoder  # noqa: E402
-from src.utils.config import load_config  # noqa: E402
-from src.envs.occlusion import make_occluder  # noqa: E402
-from src.envs.proprio import PROPRIO_OBS_DIM  # noqa: E402
-from src.models.encoders import ImageEncoder, ProprioEncoder  # noqa: E402
-from src.utils.gl import print_backend  # noqa: E402
+from src.envs.fetch_pixels import ENV_ID, PixelProprioWrapper, make_raw_env
+from src.envs.make_env import FrameStack
+from src.agent.drqv2 import DDPGAgent
+from src.buffer.replay import ReplayBuffer
+from src.models.multimodal import MultimodalEncoder
+from src.utils.config import load_config
+from src.envs.occlusion import make_occluder
+from src.envs.proprio import PROPRIO_OBS_DIM
+from src.models.encoders import ImageEncoder, ProprioEncoder
+from src.utils.gl import print_backend
 
 STEP_BUDGET = 500_000
 
@@ -113,11 +97,6 @@ def stage_encoder(args, rng, device):
 
 
 def _prefilled_buffer(args):
-    """A replay buffer filled to the capacity a production run reaches.
-
-    Filled with zeros: the benchmark measures the cost of moving and sampling
-    the data, which does not depend on its contents.
-    """
     buffer = ReplayBuffer(
         capacity=args.buffer_capacity,
         image_size=args.image_size,
@@ -144,21 +123,6 @@ def _prefilled_buffer(args):
 
 
 def stage_full(args, rng, device):
-    """The real training step: the actual agent, not a stand-in.
-
-    Earlier versions of this stage drove a single Linear head over the encoders
-    and reported ~35 FPS, then ~15 FPS once replay sampling was included. Both
-    were upper bounds on a loop far lighter than training, because the stage
-    omitted the fusion module, the actor, the twin critics, the target networks
-    and the second backward pass -- while its printed verdict decided how many
-    seeds the project could afford.
-
-    Every proxy measurement of throughput on this project has been wrong: a
-    failed GPU fan in September, then an O(buffer) sampling cost, then half the
-    network. So this stage now builds the configuration's real agent and calls
-    its real update. Config C is the default because it is the heaviest of the
-    three, and the matrix has to fit the worst case.
-    """
     env = _pixel_env(args)
     cfg = load_config(args.config)
     encoder = MultimodalEncoder(
@@ -201,16 +165,13 @@ def verdict(fps: float) -> str:
 
 
 def main():
-    # Windows: stdout defaults to the console codepage (cp1252), which cannot
-    # encode the arrows and middots in the report. That is fine in a terminal
-    # but raises the moment output is piped or redirected. Force UTF-8.
     for stream in (sys.stdout, sys.stderr):
         try:
             stream.reconfigure(encoding="utf-8")
-        except (AttributeError, ValueError):  # pragma: no cover - non-standard stream
+        except (AttributeError, ValueError):
             pass
 
-    p = argparse.ArgumentParser(description=__doc__)
+    p = argparse.ArgumentParser()
     p.add_argument("--steps", type=int, default=2000, help="steps per stage")
     p.add_argument("--env-id", default=ENV_ID)
     p.add_argument("--camera", default=None, help="camera config name (default: v1)")

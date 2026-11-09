@@ -1,44 +1,38 @@
-# Shared defaults. Configs A/B/C differ from this in a handful of keys only --
-# keep it that way, so the diff between two configs is the experiment.
-#
-# Values marked INVARIANT are the paper's contribution (CLAUDE.md). Do not tune
-# them for convergence or speed.
-
 env:
-  id: FetchPushDense-v3        # Landmine 1: never the sparse default
-  camera: v1                   # Landmine 5: bump the version if you retarget it
+  id: FetchPushDense-v3
+  camera: v1
   image_size: 84
   frame_stack: 3
   pixels: true
-  occlusion: none              # none | static | episode_static
+  occlusion: none
 
 train:
-  steps: 500000                # fallback 300K, chosen at G4
-  seed_steps: 4000             # random actions before learning starts
+  steps: 500000
+  seed_steps: 4000
   batch_size: 256
   checkpoint_every: 50000
   eval_every: 10000
   eval_episodes: 10
-  amp: true                    # adapted from the paper's float32
+  amp: true
 
 agent:
   lr: 0.0001
-  feature_dim: 128             # d          INVARIANT
-  hidden_dim: 512              # adapted from the paper's 1024
-  nstep: 3                     #            INVARIANT
+  feature_dim: 128
+  hidden_dim: 512
+  nstep: 3
   discount: 0.99
-  polyak: 0.01                 # tau        INVARIANT
-  aug_pad: 4                   # +/- 4 px   INVARIANT
+  polyak: 0.01
+  aug_pad: 4
   stddev_schedule: "linear(1.0,0.1,100000)"
-  stddev_clip: 0.3              # clip value c. Not given in Table B.1; DrQ-v2 default (D13)
+  stddev_clip: 0.3
 
-  fusion: concat               # concat | dual
-  normalization: none          # none | layernorm_simplexnorm
-  simplexnorm:                 #            INVARIANT (all four)
-    partitions: 16             # L
-    per_partition: 8           # V
+  fusion: concat
+  normalization: none
+  simplexnorm:
+    partitions: 16
+    per_partition: 8
     tau: 1.0
 
 buffer:
-  capacity: 100000             # 1e5 uint8 single frames ~ 2.12 GB
+  capacity: 100000
   nstep: 3

@@ -1,23 +1,12 @@
-"""Landmine 7. Without the repair in fetch_reset_fix.py the task is unsolvable.
-
-These are the invariants a reader would assume hold for FetchPush and which do
-not hold on a stock gymnasium-robotics 1.3.1 MuJoCo backend. If any of them
-fails, no amount of RL is going to produce a success curve.
-
-Built here with a bare ``gym.make`` rather than ``make_raw_env``, so the repair
-is tested on its own rather than through our wrappers. ``achieved_goal`` is the
-block's position, which keeps this independent of fetch_pixels.py too.
-"""
-
 import numpy as np
 import pytest
 
 pytest.importorskip("gymnasium_robotics")
 
-import gymnasium as gym  # noqa: E402
-import gymnasium_robotics  # noqa: E402,F401  (registers the Fetch envs)
+import gymnasium as gym
+import gymnasium_robotics
 
-from src.envs.fetch_reset_fix import apply_reset_fix  # noqa: E402
+from src.envs.fetch_reset_fix import apply_reset_fix
 
 pytestmark = pytest.mark.mujoco
 
@@ -43,7 +32,6 @@ def test_block_resets_onto_the_table_not_the_floor(env):
 
 
 def test_goal_and_block_share_the_table_height(env):
-    """A push goal 0.4 m above the block can never be achieved."""
     for seed in range(20):
         obs, _ = env.reset(seed=seed)
         assert float(obs["desired_goal"][2]) == pytest.approx(
@@ -78,7 +66,6 @@ def test_block_position_varies_across_seeds(env):
 
 
 def test_block_is_at_rest_after_reset(env):
-    """The block must not be falling or sliding when the episode starts."""
     obs, _ = env.reset(seed=0)
     start = obs["achieved_goal"].copy()
     zeros = np.zeros(env.action_space.shape, dtype=np.float32)
@@ -88,7 +75,6 @@ def test_block_is_at_rest_after_reset(env):
 
 
 def test_gripper_holds_position_under_zero_actions(env):
-    """If the mocap weld target is not restored, the arm jerks on step 1."""
     obs, _ = env.reset(seed=0)
     start = obs["observation"][0:3].copy()
     zeros = np.zeros(env.action_space.shape, dtype=np.float32)
@@ -98,7 +84,6 @@ def test_gripper_holds_position_under_zero_actions(env):
 
 
 def test_seeding_is_reproducible(env):
-    """The repair must not change how many draws come off np_random."""
     first = [env.reset(seed=s)[0]["achieved_goal"].copy() for s in range(10)]
     second = [env.reset(seed=s)[0]["achieved_goal"].copy() for s in range(10)]
     for a, b in zip(first, second):
@@ -106,7 +91,6 @@ def test_seeding_is_reproducible(env):
 
 
 def test_dense_reward_tracks_distance_to_goal(env):
-    """Landmine 1: the Dense variant must give a shaped, non-constant reward."""
     obs, _ = env.reset(seed=0)
     zeros = np.zeros(env.action_space.shape, dtype=np.float32)
     _, reward, *_ = env.step(zeros)

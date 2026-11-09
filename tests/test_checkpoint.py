@@ -1,13 +1,3 @@
-"""Checkpoint and resume.
-
-Runs are four hours or more on a shared machine, so resume has to be real. The
-failure this guards against is not a crash: a checkpoint that reloads the
-weights but not Adam's moments restarts the optimiser from zero at every 50K
-boundary, and one that drops the random stream re-draws the same exploration
-noise after every restart. Either silently turns one experiment into several,
-and nothing in the logs would say so.
-"""
-
 import numpy as np
 import torch
 
@@ -61,7 +51,6 @@ def test_resume_restores_the_policy_exactly(tmp_path):
 
 
 def test_resume_restores_the_target_critic_too(tmp_path):
-    """A target reset to the online weights discards the averaging history."""
     agent = make_agent()
     for _ in range(5):
         agent.update(make_batch(), step=0)
@@ -76,7 +65,6 @@ def test_resume_restores_the_target_critic_too(tmp_path):
 
 
 def test_resume_restores_the_optimizer_moments(tmp_path):
-    """Reloading weights alone silently restarts Adam at every 50K boundary."""
     agent = make_agent()
     for _ in range(3):
         agent.update(make_batch(), step=0)
@@ -97,7 +85,7 @@ def test_resume_restores_the_optimizer_moments(tmp_path):
 def test_resume_restores_the_random_stream(tmp_path):
     agent = make_agent()
     rng = np.random.default_rng(7)
-    rng.random(5)  # advance it, so a fresh generator would not match
+    rng.random(5)
 
     path = tmp_path / "latest.pt"
     save_checkpoint(path, agent, step=10, rng=rng)
@@ -108,7 +96,6 @@ def test_resume_restores_the_random_stream(tmp_path):
 
 
 def test_extra_payload_round_trips(tmp_path):
-    """The run carries its own bookkeeping -- episode count, best score."""
     agent = make_agent()
     path = tmp_path / "latest.pt"
     save_checkpoint(path, agent, step=1, rng=np.random.default_rng(0),
@@ -119,7 +106,6 @@ def test_extra_payload_round_trips(tmp_path):
 
 
 def test_writing_a_checkpoint_leaves_no_temporary_file_behind(tmp_path):
-    """The write is atomic: a kill mid-write must not corrupt the last good one."""
     agent = make_agent()
     path = tmp_path / "latest.pt"
     save_checkpoint(path, agent, step=1, rng=np.random.default_rng(0))
@@ -128,5 +114,4 @@ def test_writing_a_checkpoint_leaves_no_temporary_file_behind(tmp_path):
 
 
 def test_only_a_bounded_set_of_checkpoint_files_is_defined():
-    """Nine runs x one file per 50K is what exhausted the disk in September."""
     assert set(CHECKPOINT_NAMES) == {"latest.pt", "best.pt", "final.pt"}

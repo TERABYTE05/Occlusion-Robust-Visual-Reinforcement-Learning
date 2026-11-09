@@ -1,8 +1,3 @@
-# Pixel-path shakedown for the full method. Not an experiment.
-#
-# The first configuration that exercises rendering, the occluder, augmentation,
-# both encoders, the dualized fusion module and SimplexNorm in one loop. Short
-# enough to run while something else has the GPU.
 _base_: config_c_dual_occ.yaml
 name: config_c_smoke
 

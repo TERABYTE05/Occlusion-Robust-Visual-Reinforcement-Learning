@@ -1,29 +1,3 @@
-"""Programmatic occlusion, applied to the rendered RGB frame.
-
-The paper occludes with geometry in the ``dm_control`` scene. We approximate it
-with a mask painted onto the rendered frame -- cheaper, installable, and it
-never touches the observation dict. Masking the dict would defeat the entire
-experiment (Landmine 3).
-
-A SEVENTH LANDMINE, not in CLAUDE.md, lives here
---------------------------------------------------
-An occluder that *tracks* the block -- a rectangle re-centred on the block's
-projected position every frame -- is not an occlusion. The mask's own position
-encodes the block's position exactly, in pixels the encoder can see, so the
-agent recovers full observability by reading the rectangle's centroid. Config C
-would then differ from Config B only cosmetically, all three curves would sit on
-top of each other, and the failure would look like "the mechanism doesn't
-transfer" rather than "the experiment measures nothing". It is Landmine 3 again,
-in pixel space.
-
-So the default occluder is *static in the frame*: a fixed region of the
-workspace the camera cannot see behind, like a physical panel. The block is
-hidden while it is in that region and visible when it leaves, which is genuine
-intermittent occlusion, and the mask carries no information about where the
-block is. ``TrackingOccluder`` exists only for a deliberate ablation and refuses
-to be constructed without an explicit acknowledgement.
-"""
-
 from __future__ import annotations
 
 import warnings
@@ -38,23 +12,8 @@ from .fetch_pixels import (
     project_world_to_pixel,
 )
 
-#: Mid-grey. A neutral, opaque occluder; black would be indistinguishable from
-#: unlit background regions in some camera poses.
 DEFAULT_OCCLUDER_COLOR = (110, 110, 110)
 
-#: Fixed occluded region, as (x0, y0, x1, y1) fractions of the frame.
-#:
-#: Measured against camera v1: the block's projected centre over 500 fresh
-#: resets spans cols [22.1, 61.6] and rows [30.8, 56.4], and the goal region is
-#: the same box. Padded by 5 px so the whole cube is hidden rather than just its
-#: centre. Covers 25% of the frame -- the workspace goes, the arm and the
-#: surroundings stay.
-#:
-#: Tied to CAMERA_CONFIG_VERSION: retargeting the camera moves the workspace in
-#: the frame and this must be recomputed. `tests/test_occlusion.py` checks the
-#: block falls inside it across 50 fresh resets, and
-#: `scripts/contact_sheet.py --occlusion static --annotate` shows you why when
-#: it does not.
 DEFAULT_STATIC_RECT = (0.204, 0.307, 0.793, 0.731)
 
 
@@ -70,10 +29,9 @@ def _to_pixels(rect: Sequence[float], width: int, height: int) -> tuple[int, int
 
 
 class Occluder:
-    """Base class. Occluders receive the frame only -- never the obs dict."""
 
-    def reset(self, env) -> None:  # noqa: D401 - hook, most occluders are stateless
-        """Called on ``env.reset()``, before the first frame is produced."""
+    def reset(self, env) -> None:
+        pass
 
     def rect_pixels(self, frame: np.ndarray, env) -> tuple[int, int, int, int] | None:
         raise NotImplementedError
@@ -90,7 +48,6 @@ class Occluder:
         return frame
 
     def covers(self, col: float, row: float, frame_shape, env=None) -> bool:
-        """Whether a pixel coordinate falls inside the mask."""
         dummy = np.empty(frame_shape, dtype=np.uint8)
         box = self.rect_pixels(dummy, env)
         if box is None:
@@ -100,7 +57,6 @@ class Occluder:
 
 
 class NoOcclusion(Occluder):
-    """Configs A and the state anchor. Frames pass through untouched."""
 
     color = DEFAULT_OCCLUDER_COLOR
 
@@ -112,10 +68,6 @@ class NoOcclusion(Occluder):
 
 
 class StaticOccluder(Occluder):
-    """A fixed region of the frame the agent cannot see into. The default.
-
-    Carries no information about the block, because it does not move.
-    """
 
     def __init__(self, rect=DEFAULT_STATIC_RECT, color=DEFAULT_OCCLUDER_COLOR):
         self.rect = tuple(float(v) for v in rect)
@@ -127,11 +79,6 @@ class StaticOccluder(Occluder):
 
 
 class EpisodeStaticOccluder(Occluder):
-    """Position resampled once per episode, then frozen for the episode.
-
-    Adds variety across episodes without leaking within one: the mask is
-    constant while the block moves, so its position cannot encode the block's.
-    """
 
     def __init__(
         self,
@@ -160,12 +107,6 @@ class EpisodeStaticOccluder(Occluder):
 
 
 class TrackingOccluder(Occluder):
-    """Follows the block's projected position. LEAKS THE BLOCK POSITION.
-
-    See the module docstring. Not a valid Config C occluder. Kept only so the
-    leak can be demonstrated deliberately as an ablation, and it refuses to be
-    built unless the caller says so in as many words.
-    """
 
     def __init__(
         self,
@@ -213,11 +154,6 @@ _OCCLUDERS = {
 
 
 def make_occluder(spec) -> Occluder:
-    """Build an occluder from a config value.
-
-    Accepts ``None``/``"none"``, a mode name, or a dict with a ``mode`` key plus
-    that occluder's keyword arguments.
-    """
     if spec is None:
         return NoOcclusion()
     if isinstance(spec, str):

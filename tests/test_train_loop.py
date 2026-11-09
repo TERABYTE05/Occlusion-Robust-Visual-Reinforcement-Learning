@@ -1,11 +1,3 @@
-"""The training loop's own logic, separated from the four hours of training.
-
-Everything here is the part of a run that can be wrong without crashing:
-the observation the agent is handed, the batch adapter between the buffer and
-the agent, and the guard that stops a run rather than letting it train on NaNs
-until morning.
-"""
-
 import numpy as np
 import pytest
 
@@ -13,11 +5,7 @@ from src.buffer.replay import ReplayBuffer
 from src.train import assert_finite, flatten_state_obs, to_agent_batch
 
 
-# -- observations -----------------------------------------------------------
-
-
 def test_state_observation_is_flattened_with_the_goal_appended():
-    """Landmine 2: an agent never told where to push cannot learn."""
     obs = {
         "observation": np.arange(25, dtype=np.float32),
         "achieved_goal": np.array([9, 9, 9], dtype=np.float32),
@@ -32,7 +20,6 @@ def test_state_observation_is_flattened_with_the_goal_appended():
 
 
 def test_the_state_observation_excludes_achieved_goal():
-    """achieved_goal is the block's position under another name."""
     obs = {
         "observation": np.zeros(25, dtype=np.float32),
         "achieved_goal": np.full(3, 7.0, dtype=np.float32),
@@ -41,11 +28,7 @@ def test_the_state_observation_excludes_achieved_goal():
     assert not np.any(flatten_state_obs(obs) == 7.0)
 
 
-# -- the buffer/agent adapter ----------------------------------------------
-
-
 def test_the_agent_batch_carries_the_buffer_s_discount_and_bootstrap():
-    """The agent must never recompute these -- only the buffer knows (D12)."""
     buffer_batch = {
         "proprio": np.zeros((4, 28), dtype=np.float32),
         "next_proprio": np.ones((4, 28), dtype=np.float32),
@@ -64,11 +47,7 @@ def test_the_agent_batch_carries_the_buffer_s_discount_and_bootstrap():
     assert np.allclose(batch["bootstrap"], [1.0, 0.0, 1.0, 1.0])
 
 
-# -- the NaN guard ----------------------------------------------------------
-
-
 def test_a_non_finite_loss_fails_loudly():
-    """Four hours of training on NaNs is the failure worth crashing to avoid."""
     with pytest.raises(RuntimeError, match="non-finite"):
         assert_finite({"critic_loss": float("nan"), "actor_loss": 1.0}, step=1234)
     with pytest.raises(RuntimeError, match="non-finite"):
@@ -86,12 +65,7 @@ def test_the_guard_names_the_offending_metric_and_step():
     assert "actor_loss" in message and "99" in message
 
 
-# -- episode bookkeeping ----------------------------------------------------
-
-
 def test_every_episode_starts_with_add_first():
-    """The buffer raises if a step is recorded without one, so the loop's
-    reset handling is load-bearing rather than cosmetic."""
     buffer = ReplayBuffer(
         capacity=64, image_size=1, frame_stack=1, proprio_dim=28,
         action_dim=4, nstep=3, discount=0.99,
@@ -111,18 +85,11 @@ def test_every_episode_starts_with_add_first():
     assert len(buffer) == 12
 
 
-# -- what gets stored vs what gets acted on ---------------------------------
-
-
 def test_the_buffer_receives_a_single_frame_not_the_stack():
-    """Storing stacks puts every frame in the buffer three times -- the 254 GB
-    path CLAUDE.md forbids. The acting path and the storage path deliberately
-    carry different shapes, and conflating them is a real bug that only shows up
-    when a pixel run starts."""
     from src.train import _store_obs, pixel_obs
 
     stack = np.zeros((9, 84, 84), dtype=np.uint8)
-    stack[6:9] = 200  # the newest frame, last three channels
+    stack[6:9] = 200
     stored = _store_obs(pixel_obs, {"pixels": stack, "proprio": np.zeros(13, np.float32)},
                         uses_pixels=True)
 
@@ -142,11 +109,7 @@ def test_the_anchor_stores_the_dummy_frame():
     assert stored["proprio"].shape == (28,)
 
 
-# -- the SOP's 100-episode rolling window -----------------------------------
-
-
 def test_rolling_window_is_empty_safe_and_averages():
-    """The SOP promises rolling curves over a 100-episode window."""
     from collections import deque
 
     from src.train import rolling
@@ -166,13 +129,12 @@ def test_rolling_window_keeps_only_the_last_hundred():
         window.append(0.0)
     assert rolling(window) == pytest.approx(0.0)
     for _ in range(100):
-        window.append(1.0)          # pushes every zero out
+        window.append(1.0)
     assert len(window) == 100
     assert rolling(window) == pytest.approx(1.0)
 
 
 def test_rolling_window_reports_before_it_is_full():
-    """A curve flat at zero for 100 episodes then jumping is harder to read."""
     from collections import deque
 
     from src.train import rolling

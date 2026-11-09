@@ -1,11 +1,3 @@
-"""The exploration-noise schedule.
-
-The schedule lives in the config as a string so a run is reproducible from its
-config file alone (CLAUDE.md, Conventions). That makes parsing it part of the
-experiment: a spec that silently fell back to a constant would change the
-exploration profile of every run without changing any recorded number.
-"""
-
 import pytest
 
 from src.utils.schedule import linear_schedule
@@ -22,7 +14,6 @@ def test_schedule_reaches_the_final_value_at_the_horizon():
 
 
 def test_schedule_is_flat_after_the_horizon():
-    """500K-step runs spend most of their life past the 100K horizon."""
     assert linear_schedule(SPEC, 500000) == pytest.approx(0.1)
 
 

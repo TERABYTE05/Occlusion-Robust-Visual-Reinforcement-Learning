@@ -1,18 +1,3 @@
-"""Figures and tables for the report, from the finished matrix.
-
-Mirrors the structure the reference paper and our SOP use:
-  Figure 1  learning curves            <- paper Fig. 3, SOP "rolling curves"
-  Figure 2  the two gaps / ablation    <- paper Figs. 5-6
-  Figure 3  representation diagnostic  <- ours; explains the null
-  Table 1   adaptation blueprint       <- SOP Table I
-  Table 2   hyperparameters            <- paper Table B.1
-  Table 3   results                    <- rebuilt; the roadmap's spec does not survive the data
-
-Colour follows the dataviz reference palette. The three configurations under
-comparison take categorical slots 1-3; the state anchor is drawn as a dashed
-neutral because it is a reference bound, not a fourth peer -- which also keeps
-the categorical set at three, where it validates on all pairs.
-"""
 from __future__ import annotations
 
 import glob
@@ -30,10 +15,7 @@ OUT.mkdir(parents=True, exist_ok=True)
 SEEDS = (1, 2, 3)
 
 INK, MUTED, GRID = "#0b0b0b", "#52514e", "#dcdbd6"
-# Line widths nest deliberately: A, B and C coincide to within seed noise, so a
-# single width would hide two of them under the third and read as missing data.
-# Drawn thick-to-thin they appear as concentric bands, which is the finding.
-RUNS = [  # (dir, label, colour, linestyle, linewidth)
+RUNS = [
     ("config_a_concat_noocc", "A  concat, no occlusion",   "#2a78d6", "-",  4.0),
     ("config_b_concat_occ",   "B  concat, occlusion",      "#eb6834", "-",  2.4),
     ("config_c_dual_occ",     "C  dual + norm, occlusion", "#1baf7a", "-",  1.2),
@@ -50,13 +32,6 @@ plt.rcParams.update({
 
 
 def series(run: str, seed: int, tag: str):
-    """(steps, values) for one tag, or None if that run never logged it.
-
-    The state anchor's seed 1 ran on Sep 30, before the SOP's 100-episode
-    rolling metric was implemented (D22), so it has no `*_100ep` tags. Rather
-    than drop the series or silently average over a different seed count, the
-    callers carry n and the figure states it.
-    """
     files = sorted(glob.glob(f"results/{run}/seed{seed}/tb/events*"))
     acc = EventAccumulator(files[0], size_guidance={"scalars": 0})
     acc.Reload()
@@ -67,7 +42,6 @@ def series(run: str, seed: int, tag: str):
 
 
 def stacked(run: str, tag: str, grid: np.ndarray):
-    """Mean, sd and seed count across whichever seeds logged this tag."""
     rows = []
     for seed in SEEDS:
         got = series(run, seed, tag)
@@ -81,13 +55,6 @@ def stacked(run: str, tag: str, grid: np.ndarray):
 
 
 def smooth(y: np.ndarray, k: int = 25):
-    """Moving average that does not fabricate edges.
-
-    `np.convolve(..., mode="same")` zero-pads, which drags the first and last
-    k//2 points toward zero -- on a return curve sitting near -9 that produced a
-    spurious dive at step 0 and a spike at 500K. Reflect-padding keeps the ends
-    at the value the data actually has there.
-    """
     if len(y) < k:
         return y
     pad = k // 2
@@ -95,7 +62,6 @@ def smooth(y: np.ndarray, k: int = 25):
     return np.convolve(padded, np.ones(k) / k, mode="valid")[: len(y)]
 
 
-# ---------------------------------------------------------------- figure 1
 grid = np.linspace(0, 499_000, 300)
 fig, axes = plt.subplots(1, 2, figsize=(9.6, 3.5))
 
@@ -132,7 +98,6 @@ plt.close(fig)
 print("fig1_learning_curves")
 
 
-# ---------------------------------------------------------------- figure 2
 def final5(run, seed, tag):
     _, v = series(run, seed, tag)
     return float(np.mean(v[-5:]))
@@ -160,9 +125,6 @@ ax.grid(axis="y", color=GRID, lw=0.6); ax.set_axisbelow(True)
 ax = axes[1]
 a, b, c = succ["config_a_concat_noocc"], succ["config_b_concat_occ"], succ["config_c_dual_occ"]
 
-# A bar chart cannot show "exactly zero" -- a zero-height bar is invisible. A dot
-# with whiskers against the configurations' own seed-noise floor shows both that
-# the gaps are zero and that zero is small *relative to what would have counted*.
 noise = float(np.mean([a.std(ddof=1), b.std(ddof=1), c.std(ddof=1)]))
 ax.axhspan(-noise, noise, color=GRID, alpha=0.55, lw=0, zorder=1)
 ax.text(-0.52, -noise + 0.002, f"±1 sd of seed noise ({noise:.3f})", va="bottom",
@@ -196,7 +158,6 @@ plt.close(fig)
 print("fig2_ablation")
 
 
-# ---------------------------------------------------------------- figure 3
 fig, axes = plt.subplots(1, 2, figsize=(9.6, 3.2))
 
 ax = axes[0]
@@ -218,9 +179,6 @@ ax.set_title("Where the block's position survives", loc="left")
 ax.grid(axis="x", color=GRID, lw=0.6); ax.set_axisbelow(True)
 
 ax = axes[1]
-# Measured on MATCHED episodes (env re-seeded identically per mode). An earlier
-# run of this ablation reused one env across modes, so each mode saw different
-# episodes and appeared to show a ~2.8 return cost; that was episode variance.
 abl = [("Real frames", 0.050, -8.66), ("Frames zeroed", 0.050, -9.45),
        ("Frames = noise", 0.050, -8.76)]
 xs = np.arange(len(abl))
@@ -250,25 +208,17 @@ for ext in ("png", "pdf"):
 plt.close(fig)
 print("fig3_diagnostic")
 
-# save the numbers the tables need
 np.save(OUT / "_succ.npy", np.array([succ[r] for r, *_ in RUNS]))
 np.save(OUT / "_ret.npy", np.array([ret[r] for r, *_ in RUNS]))
 print("figures written to", OUT)
 
 
-# ---------------------------------------------------------------- the ladder
-#: The ablation ladder, in rung order, all on the occluded task. Rungs 1 and 4
-#: keep the orange and green they carry in Figures 1-2 so the report stays
-#: internally consistent; the two new rungs take hues distinct from those and
-#: from Config A's blue. The ladder is *ordered*, so Figure 4 also encodes the
-#: order in the x axis and never relies on colour alone to convey it.
 LADDER = [("rung1 B  shared, none",    "B\nnone",      "#eb6834"),
           ("rung2 D  shared, +LN",     "D\n+LN",       "#7b5ea7"),
           ("rung3 E  shared, +LN+SN",  "E\n+LN+SN",    "#d4a017"),
           ("rung4 C  dual, +LN+SN",    "C\n+dual",     "#1baf7a")]
 REF_A, REF_ANCHOR = "ref   A  no occ, none", "ref   state anchor"
 
-#: Every row of Table 1, including the two rungs added in Phase 3.
 RESULT_ROWS = [("config_a_concat_noocc", "A  concat, no occlusion"),
                ("config_b_concat_occ",   "B  concat, occlusion — rung 1"),
                ("config_d_ln_occ",       "D  + LayerNorm — rung 2"),
@@ -280,30 +230,16 @@ PROBE = json.loads(pathlib.Path("results/mechanism.json").read_text())
 
 
 def pm(label: str, key: str) -> np.ndarray:
-    """The three seeds of one mechanism metric, from results/mechanism.json.
-
-    Nothing in the plotting code hard-codes a probe number; re-running
-    scripts/probe_matrix.py is what changes these figures.
-    """
     return np.array([r[key] for r in PROBE if r["label"] == label])
 
 
 def seed_bars(ax, labels, colours, vals, fmt="{:.2f}", width=0.62):
-    """Bar of the seed mean with every individual seed drawn on top.
-
-    n=3 is too few to hide behind an error bar: the sd of three points invites a
-    reader to treat overlap as equivalence. Showing the seeds lets them see,
-    for instance, that rung 4's displacement does not overlap rung 1's at all
-    while its sensitivity does.
-    """
     xs = np.arange(len(labels))
     for i, (v, c) in enumerate(zip(vals, colours)):
         ax.bar(i, v.mean(), yerr=v.std(ddof=1), width=width, color=c,
                edgecolor="white", linewidth=2, capsize=4, zorder=3)
         ax.scatter([i] * len(v), v, color="white", edgecolor=INK, s=18,
                    zorder=4, linewidth=0.8)
-        # clear the highest seed dot, which can sit above mean + sd: rung 4's
-        # displacement seeds are 0.32 / 1.20 / 3.55 against a mean + sd of 3.05
         top = max(v.mean() + v.std(ddof=1), v.max())
         ax.text(i, top + ax.get_ylim()[1] * 0.035,
                 fmt.format(v.mean()), ha="center", fontsize=8, color=INK, zorder=5)
@@ -315,19 +251,11 @@ def seed_bars(ax, labels, colours, vals, fmt="{:.2f}", width=0.62):
 
 
 def offchart(ax, text):
-    """Name a reference value that does not fit the axis instead of rescaling.
-
-    The state anchor sits at 42.9 % sensitivity and 13.3 cm against rungs at
-    5-7.5 % and 0.1-1.7 cm. Including it on a shared linear axis flattens the
-    ladder into four indistinguishable stubs, and a log axis on a bar chart
-    misrepresents ratios. Naming it keeps the rungs legible and the bound honest.
-    """
     ax.annotate(text, xy=(0.985, 0.955), xycoords="axes fraction", ha="right",
                 va="top", fontsize=7.5, color=MUTED,
                 bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=GRID, lw=0.6))
 
 
-# ---------------------------------------------------------------- figure 4
 fig, axes = plt.subplots(1, 3, figsize=(10.6, 3.5))
 labels = [l for _, l, _ in LADDER]
 colours = [c for _, _, c in LADDER]
@@ -377,7 +305,6 @@ plt.close(fig)
 print("fig4_ladder")
 
 
-# ---------------------------------------------------------------- figure 5
 fig, axes = plt.subplots(1, 2, figsize=(9.6, 3.5))
 
 ax = axes[0]
@@ -438,9 +365,6 @@ plt.close(fig)
 print("fig5_confound")
 
 
-# ---------------------------------------------------------------- figure 6
-#: Episodes per evaluation, from the configs' own eval_episodes. Used to turn a
-#: difference in mean success rate back into a count of episodes.
 EP_PER_EVAL = 10
 LADDER_RUNS = ["config_b_concat_occ", "config_d_ln_occ",
                "config_e_ln_sn_occ", "config_c_dual_occ"]
@@ -463,8 +387,6 @@ ax = axes[1]
 diffs = []
 for seed in SEEDS:
     mat = np.vstack([series(r, seed, "eval/success_rate")[1] for r in LADDER_RUNS])
-    # an evaluation point differs if any rung disagrees with rung 1 there;
-    # 0.1 of mean success over 10 episodes is exactly one episode
     n_ep = int(round(np.abs(mat - mat[0]).sum() * EP_PER_EVAL))
     diffs.append((n_ep, mat.shape[1] * EP_PER_EVAL))
 xs = np.arange(len(SEEDS))
@@ -496,7 +418,6 @@ print("fig6_metric_degeneracy")
 DIFFS = diffs
 
 
-# ---------------------------------------------------------------- tables
 def auc(run, seed, tag="eval/success_rate"):
     steps, vals = series(run, seed, tag)
     return float(np.trapz(vals, steps) / (steps[-1] - steps[0]))
@@ -582,7 +503,6 @@ lines += ["\nMean ± sample sd over 3 seeds; success and return are the mean of 
           "| Measured throughput | — | 7.7 FPS, 18.1 h per 500K run (two concurrent) |"]
 
 
-# ------------------------------------------------- tables 6-8, the ladder
 def pmrow(label):
     f = lambda k, p=2: f"{pm(label, k).mean():.{p}f} ± {pm(label, k).std(ddof=1):.{p}f}"
     return (f("repr_rms"), f("sensitivity"), f("q_scale"),

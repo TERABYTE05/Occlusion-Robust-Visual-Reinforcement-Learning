@@ -1,5 +1,3 @@
-"""The image encoder architecture is an invariant (CLAUDE.md)."""
-
 import pytest
 import torch
 import torch.nn as nn
@@ -53,12 +51,8 @@ def test_proprio_encoder_shape():
 
 
 def test_proprio_encoder_refuses_a_wider_input():
-    """Widening g_xi's input is how the Landmine 3 leak gets reintroduced."""
     with pytest.raises(ValueError):
         ProprioEncoder(in_dim=25)
-
-
-# -- the state anchor's pass-through encoder --------------------------------
 
 
 def test_state_encoder_is_a_pass_through_with_a_declared_width():
@@ -71,7 +65,6 @@ def test_state_encoder_is_a_pass_through_with_a_declared_width():
 
 
 def test_state_encoder_holds_no_parameters():
-    """The anchor exists to test DDPG, not representation learning."""
     from src.models.encoders import StateEncoder
 
     assert list(StateEncoder(28).parameters()) == []

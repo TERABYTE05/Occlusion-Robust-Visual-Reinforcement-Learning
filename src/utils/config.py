@@ -1,10 +1,3 @@
-"""Config loading with a single level of inheritance.
-
-Every run is defined by a config file plus a seed, and no hyperparameters on the
-command line (CLAUDE.md, Conventions). A config may name a parent with
-``_base_``; keys merge recursively, child wins.
-"""
-
 from __future__ import annotations
 
 import copy
@@ -25,7 +18,6 @@ def _deep_merge(base: dict, override: Mapping) -> dict:
 
 
 def load_config(path: str | pathlib.Path) -> dict[str, Any]:
-    """Load a YAML config, resolving ``_base_`` relative to the config's own dir."""
     path = pathlib.Path(path)
     with path.open(encoding="utf-8") as fh:
         cfg = yaml.safe_load(fh) or {}

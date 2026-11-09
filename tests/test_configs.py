@@ -1,10 +1,3 @@
-"""Guards on the config files themselves.
-
-The A/B/C comparison is only valid if the configs are identical everywhere the
-experiment does not intend them to differ, and the invariants are only
-invariant if nothing quietly edits them.
-"""
-
 import pytest
 
 from src.utils.config import load_config
@@ -25,7 +18,6 @@ def cfgs(repo_root):
 
 @pytest.mark.parametrize("name", ALL_CONFIGS)
 def test_env_id_is_the_dense_variant(repo_root, name):
-    """Landmine 1: the sparse default is unlearnable inside our step budget."""
     cfg = load_config(repo_root / CONFIG_DIR / name)
     assert cfg["env"]["id"] == "FetchPushDense-v3"
 
@@ -49,7 +41,6 @@ def test_simplexnorm_partitions_tile_the_feature_dim(repo_root, name):
 
 
 def test_a_and_b_differ_only_in_occlusion(cfgs):
-    """A - B is the occlusion penalty, so occlusion must be the only difference."""
     a = cfgs["config_a_concat_noocc.yaml"]
     b = cfgs["config_b_concat_occ.yaml"]
     assert a["agent"] == b["agent"]
@@ -62,7 +53,6 @@ def test_a_and_b_differ_only_in_occlusion(cfgs):
 
 
 def test_b_and_c_differ_only_in_fusion_and_normalization(cfgs):
-    """C - B is what the mechanism recovers; nothing else may vary."""
     b = cfgs["config_b_concat_occ.yaml"]
     c = cfgs["config_c_dual_occ.yaml"]
     assert b["env"] == c["env"], "B and C must be occluded identically"

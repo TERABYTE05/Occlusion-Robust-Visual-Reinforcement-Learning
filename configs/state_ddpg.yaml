@@ -1,11 +1,3 @@
-# Sanity anchor, not a reported baseline. Ground-truth state, no images.
-#
-# It proves the task, reward, goal conditioning and DDPG core are sound before
-# any vision enters the picture. If this does not learn, nothing downstream can
-# (Roadmap §2, G2).
-#
-# Note this is the one config allowed to see full state: with no rendering there
-# is no occlusion to leak past, so Landmine 3 does not apply.
 _base_: base.yaml
 name: state_ddpg
 
@@ -15,5 +7,4 @@ env:
 
 train:
   steps: 200000
-  amp: false                   # tiny MLPs gain nothing from fp16, and the
-                               # anchor is a debugging tool: no fp16 risk (D14)
+  amp: false

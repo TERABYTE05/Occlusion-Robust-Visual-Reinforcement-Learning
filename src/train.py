@@ -1,28 +1,3 @@
-"""The training loop (Noh et al., Algorithm 1).
-
-Usage::
-
-    ./scripts/run.sh configs/state_ddpg.yaml --seed 1
-    ./scripts/run.sh configs/state_ddpg.yaml --seed 1 --resume
-
-A run is defined by a config file plus a seed, and nothing else (CLAUDE.md,
-Conventions). There are no hyperparameter flags: a shorter run is a config
-file, not a command-line override, so that every run in the report can be
-reproduced from something that was committed.
-
-Two paths share this loop. The **state anchor** (``env.pixels: false``) sees
-the ground-truth state and exists to prove the task, the reward, goal
-conditioning and the DDPG core before any vision enters. The **pixel path**
-sees stacked frames plus the 13-D proprioception slice, fused by ``h_psi``
-(shared for Configs A and B, dualized and normalized for Config C).
-
-The anchor stores a 1x1 dummy frame in the replay buffer rather than using a
-second, simpler buffer. That is deliberate: it means the anchor exercises the
-same n-step accumulation and the same bootstrap masking as the real runs, so a
-bug in D12's logic surfaces in the cheapest configuration rather than the most
-expensive one. Three bytes per transition is not worth a second code path.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -46,24 +21,10 @@ from .utils.checkpoint import REPLAY_NAME, load_checkpoint, save_checkpoint
 from .utils.config import load_config
 from .utils.gl import resolved_backend
 
-#: A placeholder frame for the state anchor, which has no pixels at all.
 _DUMMY_FRAME = np.zeros((1, 1, 3), dtype=np.uint8)
 
 
-# -- observations -----------------------------------------------------------
-
-
 def flatten_state_obs(obs: Mapping[str, Any]) -> np.ndarray:
-    """Ground-truth state for the anchor: the full 25-D vector plus the goal.
-
-    ``achieved_goal`` is deliberately excluded -- it is the block's position
-    under another name, and including it would put the same quantity in the
-    vector twice. ``desired_goal`` must be included or the agent is never told
-    where to push (Landmine 2).
-
-    The anchor is the one configuration allowed to see object state: with no
-    rendering there is no occlusion to leak past, so Landmine 3 does not apply.
-    """
     return np.concatenate(
         [np.asarray(obs["observation"], dtype=np.float32),
          np.asarray(obs["desired_goal"], dtype=np.float32)]
@@ -71,23 +32,11 @@ def flatten_state_obs(obs: Mapping[str, Any]) -> np.ndarray:
 
 
 def pixel_obs(obs: Mapping[str, Any]) -> dict[str, np.ndarray]:
-    """Pixel path: the stacked frames and the 13-D slice, kept separate."""
     return {"pixels": obs["pixels"], "proprio": obs["proprio"]}
 
 
-# -- buffer/agent adapter ---------------------------------------------------
-
 def to_agent_batch(batch: Mapping[str, Any], pixels: bool) -> dict[str, np.ndarray]:
-    """Rename a buffer batch into what the agent consumes.
-
-    ``reward``, ``discount`` and ``bootstrap`` pass straight through. The agent
-    must never recompute them: the buffer is the only component that knows
-    where episodes end, so it is the only one that can know whether a window
-    was cut short and whether the bootstrap survives (D12).
-    """
     if pixels:
-        # The multimodal encoder consumes both streams, so the observation stays
-        # a dict all the way through rather than being flattened here.
         obs = {"pixels": batch["pixels"], "proprio": batch["proprio"]}
         next_obs = {"pixels": batch["next_pixels"], "proprio": batch["next_proprio"]}
     else:
@@ -103,27 +52,11 @@ def to_agent_batch(batch: Mapping[str, Any], pixels: bool) -> dict[str, np.ndarr
     }
 
 
-# -- guards -----------------------------------------------------------------
-
-
 def rolling(window) -> float:
-    """Mean of a rolling window, 0.0 while it is still empty.
-
-    The window is deliberately *not* required to be full before it reports: a
-    curve that stays flat at zero for its first hundred episodes and then jumps
-    is harder to read than one that starts noisy and settles.
-    """
     return float(sum(window) / len(window)) if window else 0.0
 
 
 def assert_finite(metrics: Mapping[str, float], step: int) -> None:
-    """Stop the run the moment a loss stops being a number.
-
-    The fallback ladder names the SimplexNorm softmax at tau=1 under mixed
-    precision as the first suspect for NaNs (rung 4). Whatever the cause,
-    training through them for four hours produces a checkpoint that is not a
-    policy and a curve that looks like a learning-rate problem.
-    """
     for key, value in metrics.items():
         if not np.isfinite(value):
             raise RuntimeError(
@@ -133,19 +66,12 @@ def assert_finite(metrics: Mapping[str, float], step: int) -> None:
             )
 
 
-# -- assembly ---------------------------------------------------------------
-
-
 def build_agent(cfg: Mapping[str, Any], env, device: str) -> tuple[DDPGAgent, Any, bool]:
-    """Return ``(agent, obs_fn, uses_pixels)`` for this config."""
     env_cfg = cfg.get("env", {})
     uses_pixels = bool(env_cfg.get("pixels", True))
     action_dim = int(env.action_space.shape[0])
 
     if uses_pixels:
-        # f_xi + g_zeta + h_psi. Whether h_psi is shared or dualized, and whether
-        # it normalizes, is read from the config -- that difference is the
-        # experiment (Configs A/B vs C).
         encoder: torch.nn.Module = MultimodalEncoder(
             cfg,
             image_size=int(env_cfg.get("image_size", 84)),
@@ -180,16 +106,6 @@ def build_buffer(cfg: Mapping[str, Any], obs_dim: int, action_dim: int, uses_pix
 
 
 def _store_obs(obs_fn, obs, uses_pixels: bool) -> dict[str, np.ndarray]:
-    """What goes into the replay buffer, which is not what the policy acts on.
-
-    The acting path carries a ``(3k, H, W)`` stack so the policy has temporal
-    context. The buffer stores **single** frames in ``(H, W, 3)`` and rebuilds
-    stacks at sample time -- storing stacks would put every frame in the buffer
-    three times, which is the 254 GB path (CLAUDE.md, Conventions).
-
-    The newest frame is the last three channels of the stack, because
-    ``FrameStack`` concatenates oldest-first.
-    """
     if uses_pixels:
         encoded = obs_fn(obs)
         newest = np.ascontiguousarray(encoded["pixels"][-3:].transpose(1, 2, 0))
@@ -197,16 +113,11 @@ def _store_obs(obs_fn, obs, uses_pixels: bool) -> dict[str, np.ndarray]:
     return {"pixels": _DUMMY_FRAME, "proprio": obs_fn(obs)}
 
 
-# -- the loop ---------------------------------------------------------------
-
-
 def train(config_path: str, seed: int, resume: bool = False) -> dict[str, float]:
     cfg = load_config(config_path)
     train_cfg = cfg.get("train", {})
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    # Never remove this print (Landmine 4): the backend decides the timeline,
-    # and on this machine glfw silently renders on the Intel iGPU.
     print(f"[gl] active backend: {resolved_backend()}")
     print(f"[run] config={cfg['name']} seed={seed} device={device}")
 
@@ -229,7 +140,7 @@ def train(config_path: str, seed: int, resume: bool = False) -> dict[str, float]
         from torch.utils.tensorboard import SummaryWriter
 
         writer = SummaryWriter(log_dir=str(out_dir / "tb"))
-    except Exception as exc:  # pragma: no cover - logging must never kill a run
+    except Exception as exc:
         print(f"[warn] TensorBoard unavailable ({exc}); continuing without it")
 
     start_step = 0
@@ -241,9 +152,6 @@ def train(config_path: str, seed: int, resume: bool = False) -> dict[str, float]
         best_success = float(state["extra"].get("best_success", -1.0))
         print(f"[resume] continuing from step {start_step}")
 
-        # Without the replay history a resumed run trains on near-on-policy data
-        # until the buffer refills, so it is not the same experiment as an
-        # uninterrupted one -- and nothing in the curves would say so.
         replay_path = out_dir / REPLAY_NAME
         if replay_path.exists():
             buffer.load(replay_path)
@@ -265,18 +173,11 @@ def train(config_path: str, seed: int, resume: bool = False) -> dict[str, float]
     obs, _info = env.reset()
     buffer.add_first(_store_obs(obs_fn, obs, uses_pixels))
     episode_return, episode_steps, episodes = 0.0, 0, 0
-    # The SOP promises "rolling success-rate and episode-return curves (over a
-    # 100-episode window)". That window is over *training* episodes, so it costs
-    # no extra environment steps -- unlike the periodic evaluation, which buys a
-    # noise-free estimate with real rollouts. Both are reported; they are
-    # different quantities and the report needs this one.
     recent_success: deque[float] = deque(maxlen=100)
     recent_return: deque[float] = deque(maxlen=100)
     episode_success = 0.0
     last_time, last_step = time.time(), start_step
     metrics: dict[str, float] = {}
-    # len(buffer) is O(capacity); once the batch is available it stays
-    # available, so the check is latched rather than repeated every step.
     ready = False
     summary: dict[str, float] = {}
 
@@ -291,9 +192,6 @@ def train(config_path: str, seed: int, resume: bool = False) -> dict[str, float]
                    terminated=bool(terminated), truncated=bool(truncated))
         episode_return += float(reward)
         episode_steps += 1
-        # FetchPush reports success per step and the block can be pushed back
-        # out again, so an episode counts as a success if the goal was ever
-        # reached -- the same rule the evaluator uses.
         episode_success = max(episode_success, float(info.get("is_success", 0.0)))
         obs = next_obs
 
@@ -307,8 +205,6 @@ def train(config_path: str, seed: int, resume: bool = False) -> dict[str, float]
                 writer.add_scalar("train/success_rate_100ep", rolling(recent_success), step)
                 writer.add_scalar("train/episode_return_100ep", rolling(recent_return), step)
             obs, _info = env.reset()
-            # The buffer raises if a step is recorded without this, so the
-            # reset path is load-bearing rather than cosmetic.
             buffer.add_first(_store_obs(obs_fn, obs, uses_pixels))
             episode_return, episode_steps, episode_success = 0.0, 0, 0.0
 
@@ -346,8 +242,6 @@ def train(config_path: str, seed: int, resume: bool = False) -> dict[str, float]
 
     save_checkpoint(out_dir / "final.pt", agent, total_steps, rng,
                     extra={"best_success": best_success, "episodes": episodes})
-    # A finished run has nothing to resume, and this snapshot is ~2.1 GB on the
-    # pixel path. Nine left behind is how the last disk filled up.
     shutil.rmtree(out_dir / REPLAY_NAME, ignore_errors=True)
     if writer is not None:
         writer.close()
